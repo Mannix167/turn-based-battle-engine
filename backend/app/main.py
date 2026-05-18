@@ -1,0 +1,32 @@
+from fastapi import FastAPI
+
+from app.api.routes_characters import router as characters_router
+from app.api.routes_game import router as game_router
+from app.api.routes_maps import router as maps_router
+from app.api.routes_skills import router as skills_router
+from app.api.routes_uploads import router as uploads_router
+from app.config import ensure_local_dirs
+from app.db.database import Base, engine
+from app.db.seed import seed_database
+
+
+def create_app() -> FastAPI:
+    ensure_local_dirs()
+    Base.metadata.create_all(bind=engine)
+    seed_database()
+
+    app = FastAPI(title="Turn-Based Grid Game v2")
+    app.include_router(characters_router, prefix="/api/characters", tags=["characters"])
+    app.include_router(skills_router, prefix="/api/skills", tags=["skills"])
+    app.include_router(maps_router, prefix="/api/maps", tags=["maps"])
+    app.include_router(game_router, prefix="/api/game", tags=["game"])
+    app.include_router(uploads_router, prefix="/api/uploads", tags=["uploads"])
+
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    return app
+
+
+app = create_app()
