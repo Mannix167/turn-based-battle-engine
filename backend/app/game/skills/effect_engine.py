@@ -28,6 +28,9 @@ class EffectEngine:
             "modify_stat": self._modify_stat,
             "add_permanent_ap": self._add_permanent_ap,
             "add_temporary_ap": self._add_temporary_ap,
+            "grant_permanent_ap": self._add_permanent_ap,
+            "grant_temporary_ap": self._add_temporary_ap,
+            "grant_random_common_skill": self._grant_random_common_skill,
             "extra_turn_next_round": self._extra_turn_next_round,
             "alliance": self._alliance,
             "remove_alliance": self._remove_alliance,
@@ -282,6 +285,18 @@ class EffectEngine:
             raise EffectEngineError("grant_skill requires metadata.templateId")
         for target in targets:
             grant_skill(target, template_id, "random_reward")
+
+    def _grant_random_common_skill(
+        self,
+        state: GameState,
+        caster: BattleEntity,
+        targets: list[BattleEntity],
+        effect: EffectConfig,
+    ) -> None:
+        from app.game.reward import grant_random_common_skill
+
+        for target in targets:
+            grant_random_common_skill(target)
 
 
 def use_skill(

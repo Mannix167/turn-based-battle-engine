@@ -31,6 +31,10 @@ SKILL_TEMPLATES: dict[str, SkillTemplate] = {
         name="Bomb",
         description="Deal 10 damage to one enemy. One use only.",
         category="common",
+        iconUrl="💣",
+        skillKind="built_in",
+        enabled=True,
+        usableAs=["common", "reward"],
         cost=1,
         range=3,
         targetType="single",
@@ -40,7 +44,26 @@ SKILL_TEMPLATES: dict[str, SkillTemplate] = {
         canTargetEnemy=True,
         canTargetEmptyCell=False,
         effects=[EffectConfig(type="damage", value=10, metadata={"fixedDamage": True})],
-    )
+    ),
+    "hero_strike": SkillTemplate(
+        id="hero_strike",
+        name="Hero Strike",
+        description="Character skill. Deal 15 fixed damage to one enemy.",
+        category="character",
+        iconUrl="🗡️",
+        skillKind="built_in",
+        enabled=True,
+        usableAs=["character"],
+        cost=1,
+        range=1,
+        targetType="single",
+        areaType="single",
+        canTargetSelf=False,
+        canTargetAlly=False,
+        canTargetEnemy=True,
+        canTargetEmptyCell=False,
+        effects=[EffectConfig(type="damage", value=15, metadata={"fixedDamage": True})],
+    ),
 }
 
 

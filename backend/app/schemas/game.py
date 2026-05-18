@@ -76,6 +76,7 @@ class StartGameRequest(BaseModel):
     mapId: str = "map_default"
     entityIds: list[str] = Field(min_length=1)
     positions: dict[str, Position]
+    selectedSkillTemplateIds: dict[str, list[str]] = {}
 
 
 class MoveRequest(BaseModel):
@@ -119,6 +120,7 @@ class PendingRewardSchema(BaseModel):
 
 class GameStateRead(BaseModel):
     gameId: str
+    mapId: str
     roundNumber: int
     currentEntityId: str | None
     actionQueue: list[str]

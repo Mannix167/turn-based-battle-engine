@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import CharacterRecord
+from app.api.routes_skills import get_template_by_id
 from app.schemas.character import CharacterCreate, CharacterRead, CharacterUpdate
 
 
@@ -48,6 +49,19 @@ def apply_payload(record: CharacterRecord, payload: CharacterCreate | CharacterU
     record.default_skill_template_ids = json.dumps(payload.defaultSkillTemplateIds)
 
 
+def validate_character_skills(db: Session, template_ids: list[str]) -> None:
+    if len(template_ids) != len(set(template_ids)):
+        raise HTTPException(status_code=400, detail="Character skills cannot contain duplicates")
+    if len(template_ids) > 2:
+        raise HTTPException(status_code=400, detail="A character can have at most 2 character skills")
+    for template_id in template_ids:
+        template = get_template_by_id(template_id, db)
+        if not template:
+            raise HTTPException(status_code=400, detail=f"Skill does not exist: {template_id}")
+        if not template.enabled or "character" not in template.usableAs:
+            raise HTTPException(status_code=400, detail=f"Skill cannot be used as character skill: {template_id}")
+
+
 @router.get("", response_model=list[CharacterRead])
 def list_characters(db: Session = Depends(get_db)) -> list[CharacterRead]:
     records = db.scalars(select(CharacterRecord).order_by(CharacterRecord.name)).all()
@@ -64,6 +78,7 @@ def get_character(character_id: str, db: Session = Depends(get_db)) -> Character
 
 @router.post("", response_model=CharacterRead, status_code=201)
 def create_character(payload: CharacterCreate, db: Session = Depends(get_db)) -> CharacterRead:
+    validate_character_skills(db, payload.defaultSkillTemplateIds)
     record = CharacterRecord(id=payload.id or f"char_{uuid4().hex[:10]}", name=payload.name)
     apply_payload(record, payload)
     db.add(record)
@@ -81,6 +96,7 @@ def update_character(
     record = db.get(CharacterRecord, character_id)
     if not record:
         raise HTTPException(status_code=404, detail="Character not found")
+    validate_character_skills(db, payload.defaultSkillTemplateIds)
     apply_payload(record, payload)
     db.commit()
     db.refresh(record)

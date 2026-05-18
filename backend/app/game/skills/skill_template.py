@@ -38,6 +38,10 @@ class SkillTemplate:
     range: int
     targetType: Literal["single", "emptyCell", "direction", "self"]
     areaType: Literal["single", "line", "cross", "square", "none"]
+    iconUrl: str | None = None
+    skillKind: Literal["built_in", "configurable"] = "built_in"
+    enabled: bool = True
+    usableAs: list[str] = field(default_factory=lambda: ["common", "reward"])
     canTargetSelf: bool = False
     canTargetAlly: bool = False
     canTargetEnemy: bool = True

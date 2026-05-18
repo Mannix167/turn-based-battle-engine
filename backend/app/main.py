@@ -1,11 +1,12 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes_characters import router as characters_router
 from app.api.routes_game import router as game_router
 from app.api.routes_maps import router as maps_router
 from app.api.routes_skills import router as skills_router
 from app.api.routes_uploads import router as uploads_router
-from app.config import ensure_local_dirs
+from app.config import UPLOAD_DIR, ensure_local_dirs
 from app.db.database import Base, engine
 from app.db.seed import seed_database
 
@@ -21,6 +22,7 @@ def create_app() -> FastAPI:
     app.include_router(maps_router, prefix="/api/maps", tags=["maps"])
     app.include_router(game_router, prefix="/api/game", tags=["game"])
     app.include_router(uploads_router, prefix="/api/uploads", tags=["uploads"])
+    app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
     @app.get("/health")
     def health() -> dict[str, str]:

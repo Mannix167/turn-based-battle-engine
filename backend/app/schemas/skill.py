@@ -11,6 +11,9 @@ EffectType = Literal[
     "modify_stat",
     "add_permanent_ap",
     "add_temporary_ap",
+    "grant_permanent_ap",
+    "grant_temporary_ap",
+    "grant_random_common_skill",
     "extra_turn_next_round",
     "alliance",
     "remove_alliance",
@@ -28,10 +31,13 @@ class EffectConfig(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class SkillTemplateRead(BaseModel):
-    id: str
+class SkillTemplateBase(BaseModel):
     name: str
     description: str = ""
+    iconUrl: str | None = None
+    skillKind: Literal["built_in", "configurable"] = "configurable"
+    enabled: bool = True
+    usableAs: list[Literal["character", "common", "reward", "summon"]] = ["common", "reward"]
     category: Literal["character", "common"]
     cost: int = Field(ge=0)
     range: int = Field(ge=0)
@@ -42,3 +48,15 @@ class SkillTemplateRead(BaseModel):
     canTargetEnemy: bool = True
     canTargetEmptyCell: bool = False
     effects: list[EffectConfig]
+
+
+class SkillTemplateCreate(SkillTemplateBase):
+    id: str | None = None
+
+
+class SkillTemplateUpdate(SkillTemplateBase):
+    pass
+
+
+class SkillTemplateRead(SkillTemplateBase):
+    id: str
