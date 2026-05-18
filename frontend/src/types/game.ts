@@ -67,6 +67,15 @@ export interface PendingReward {
   availableTemplateIds: string[]
 }
 
+export interface DamageEvent {
+  sourceEntityId: string
+  targetEntityId: string
+  amount: number
+  isCrit: boolean
+  rawDamage: number
+  linkedFromEntityId?: string | null
+}
+
 export interface GameStateRead {
   gameId: string
   mapId: string
@@ -76,6 +85,7 @@ export interface GameStateRead {
   entities: BattleEntity[]
   treasures: TreasureEntity[]
   pendingRewards: Record<string, PendingReward>
+  recentDamageEvents: DamageEvent[]
   isFinished: boolean
   winnerGroup: string[]
   log: string[]
@@ -92,6 +102,7 @@ export interface UseSkillPayload {
   casterId: string
   skillInstanceId: string
   targetEntityId?: string
+  secondTargetEntityId?: string
   targetCell?: Position
   direction?: Direction
 }

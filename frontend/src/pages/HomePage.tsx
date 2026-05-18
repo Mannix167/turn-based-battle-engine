@@ -26,13 +26,13 @@ export default function HomePage() {
             className="btn btn-primary btn-large"
             onClick={() => navigate('/setup')}
           >
-            ⚔️ 开始游戏
+            开始游戏
           </button>
           <button
             className="btn btn-secondary btn-large"
             onClick={() => navigate('/characters')}
           >
-            🎭 角色编辑器
+            角色编辑器
           </button>
           <button
             className="btn btn-secondary btn-large"

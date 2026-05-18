@@ -1,7 +1,7 @@
 from random import Random
 
 from app.game.action_points import consume_ap
-from app.game.damage import apply_damage
+from app.game.damage import apply_fixed_damage_to_state
 from app.game.distance import manhattan
 from app.game.models import GameState
 from app.game.reward import grant_random_common_skill, handle_defeat
@@ -28,6 +28,8 @@ def dig_treasure(
         raise TreasureError("Treasure is out of digging range")
 
     consume_ap(entity, 1)
+    state.recentDamagedEntityIds = []
+    state.recentDamageEvents = []
     treasure.isDug = True
     roller = rng or Random()
     if roller.random() < entity.luck / 100:
@@ -35,12 +37,9 @@ def dig_treasure(
         state.log.append(f"{entity.name} dug {treasure.name} and found a skill")
         return
     if roller.random() < 0.5:
-        result = apply_damage(entity, entity, base_damage=failure_damage)
-        if result.amount == 0:
-            entity.currentHp = max(0, entity.currentHp - failure_damage)
-            if entity.currentHp <= 0:
-                entity.isAlive = False
-                handle_defeat(state, entity, None, roller)
-        state.log.append(f"{entity.name} failed to dig {treasure.name} and took {failure_damage} damage")
+        actual = apply_fixed_damage_to_state(state, entity, entity, failure_damage, allow_self=True)
+        if not entity.isAlive:
+            handle_defeat(state, entity, None, roller)
+        state.log.append(f"{entity.name} failed to dig {treasure.name} and took {actual} damage")
     else:
         state.log.append(f"{entity.name} failed to dig {treasure.name}")

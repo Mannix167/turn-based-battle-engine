@@ -1,52 +1,64 @@
 import json
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db.database import SessionLocal
-from app.db.models import CharacterRecord
+from app.db.models import CharacterRecord, MapRecord, SkillRecord
 from app.game.fixtures import SKILL_TEMPLATES
 
 
 def seed_database() -> None:
     with SessionLocal() as db:
-        exists = db.scalar(select(CharacterRecord.id).limit(1))
-        if exists:
-            sanitize_character_default_skills(db)
-            return
-
-        db.add_all(
-            [
-                CharacterRecord(
-                    id="char_knight",
-                    name="Knight",
-                    description="Durable melee starter.",
-                    max_hp=120,
-                    base_attack=18,
-                    base_defense=8,
-                    attack_range=1,
-                    temp_ap_per_turn=2,
-                    speed=8,
-                    crit_rate=10,
-                    luck=45,
-                    default_skill_template_ids=json.dumps([]),
-                ),
-                CharacterRecord(
-                    id="char_ranger",
-                    name="Ranger",
-                    description="Fast ranged starter.",
-                    max_hp=90,
-                    base_attack=16,
-                    base_defense=4,
-                    attack_range=3,
-                    temp_ap_per_turn=2,
-                    speed=12,
-                    crit_rate=20,
-                    luck=60,
-                    default_skill_template_ids=json.dumps([]),
-                ),
-            ]
+        cleanup_contract_test_records(db)
+        ensure_starter_character(
+            db,
+            CharacterRecord(
+                id="char_knight",
+                name="Knight",
+                description="Durable melee starter.",
+                max_hp=120,
+                base_attack=18,
+                base_defense=8,
+                attack_range=1,
+                temp_ap_per_turn=2,
+                speed=8,
+                crit_rate=10,
+                luck=45,
+                default_skill_template_ids=json.dumps([]),
+            ),
         )
+        ensure_starter_character(
+            db,
+            CharacterRecord(
+                id="char_ranger",
+                name="Ranger",
+                description="Fast ranged starter.",
+                max_hp=90,
+                base_attack=16,
+                base_defense=4,
+                attack_range=3,
+                temp_ap_per_turn=2,
+                speed=12,
+                crit_rate=20,
+                luck=60,
+                default_skill_template_ids=json.dumps([]),
+            ),
+        )
+        sanitize_character_default_skills(db)
         db.commit()
+
+
+def cleanup_contract_test_records(db) -> None:
+    db.execute(delete(CharacterRecord).where(CharacterRecord.id.like("char_contract_%")))
+    db.execute(delete(MapRecord).where(MapRecord.id.like("map_contract_%")))
+    db.execute(delete(SkillRecord).where(SkillRecord.id.like("skill_contract_%")))
+    db.execute(delete(SkillRecord).where(SkillRecord.id.like("skill_disabled_%")))
+
+
+def ensure_starter_character(db, record: CharacterRecord) -> None:
+    if db.get(CharacterRecord, record.id):
+        return
+    db.add(record)
 
 
 def sanitize_character_default_skills(db) -> None:

@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { createCharacter, updateCharacter } from '../api/characters'
 import { listCharacterSkillTemplates } from '../api/skills'
 import { uploadPortrait, uploadToken } from '../api/uploads'
 import ImageUploader from './ImageUploader'
 import type { CharacterRead, CharacterCreate, CharacterUpdate } from '../types/character'
 import type { SkillTemplateRead } from '../types/skill'
+import { EFFECT_TYPE_LABELS } from '../types/skill'
 
 const DEFAULT_FORM: CharacterCreate = {
   name: '',
@@ -22,6 +23,8 @@ const DEFAULT_FORM: CharacterCreate = {
   defaultSkillTemplateIds: [],
 }
 
+const MAX_CHARACTER_SKILLS = 3
+
 interface CharacterFormProps {
   character: CharacterRead | null
   onSaved: (char: CharacterRead) => void
@@ -32,6 +35,20 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
   const [skillTemplates, setSkillTemplates] = useState<SkillTemplateRead[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  /* 搜索/筛选 */
+  const [skillSearch, setSkillSearch] = useState('')
+
+  const filteredSkills = useMemo(() => {
+    const q = skillSearch.trim().toLowerCase()
+    if (!q) return skillTemplates
+    return skillTemplates.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.description.toLowerCase().includes(q) ||
+        t.id.toLowerCase().includes(q)
+    )
+  }, [skillTemplates, skillSearch])
 
   // 编辑模式时同步 character 到表单
   useEffect(() => {
@@ -71,10 +88,15 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
   const handleSkillToggle = (templateId: string) => {
     setForm((prev) => {
       const ids = prev.defaultSkillTemplateIds ?? []
-      const next = ids.includes(templateId)
-        ? ids.filter((id) => id !== templateId)
-        : [...ids, templateId]
-      return { ...prev, defaultSkillTemplateIds: next }
+      if (ids.includes(templateId)) {
+        return { ...prev, defaultSkillTemplateIds: ids.filter((id) => id !== templateId) }
+      }
+      // 达到上限时提示
+      if (ids.length >= MAX_CHARACTER_SKILLS) {
+        setMessage({ type: 'error', text: `角色特定技能最多 ${MAX_CHARACTER_SKILLS} 个` })
+        return prev
+      }
+      return { ...prev, defaultSkillTemplateIds: [...ids, templateId] }
     })
   }
 
@@ -89,7 +111,6 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
     try {
       let saved: CharacterRead
       if (character) {
-        // 编辑模式
         const payload: CharacterUpdate = {
           name: form.name,
           description: form.description,
@@ -107,7 +128,6 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
         }
         saved = await updateCharacter(character.id, payload)
       } else {
-        // 新增模式
         saved = await createCharacter(form)
       }
       setMessage({ type: 'success', text: character ? '保存成功' : '角色创建成功' })
@@ -122,6 +142,9 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
       setSubmitting(false)
     }
   }
+
+  const selectedSkillIds = form.defaultSkillTemplateIds ?? []
+  const skillMap = useMemo(() => new Map(skillTemplates.map((s) => [s.id, s])), [skillTemplates])
 
   return (
     <form className="character-form" onSubmit={handleSubmit}>
@@ -163,85 +186,35 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
         <div className="form-grid">
           <div className="form-row">
             <label className="form-label">最大生命值 (maxHp)</label>
-            <input
-              className="form-input"
-              type="number"
-              min={1}
-              value={form.maxHp}
-              onChange={(e) => setField('maxHp', parseInt(e.target.value) || 1)}
-            />
+            <input className="form-input" type="number" min={1} value={form.maxHp} onChange={(e) => setField('maxHp', parseInt(e.target.value) || 1)} />
           </div>
           <div className="form-row">
             <label className="form-label">基础攻击力 (baseAttack)</label>
-            <input
-              className="form-input"
-              type="number"
-              min={0}
-              value={form.baseAttack}
-              onChange={(e) => setField('baseAttack', parseInt(e.target.value) || 0)}
-            />
+            <input className="form-input" type="number" min={1} value={form.baseAttack} onChange={(e) => setField('baseAttack', Math.max(1, parseInt(e.target.value) || 1))} />
           </div>
           <div className="form-row">
             <label className="form-label">基础防御力 (baseDefense)</label>
-            <input
-              className="form-input"
-              type="number"
-              min={0}
-              value={form.baseDefense}
-              onChange={(e) => setField('baseDefense', parseInt(e.target.value) || 0)}
-            />
+            <input className="form-input" type="number" min={0} value={form.baseDefense} onChange={(e) => setField('baseDefense', parseInt(e.target.value) || 0)} />
           </div>
           <div className="form-row">
             <label className="form-label">攻击范围 (attackRange)</label>
-            <input
-              className="form-input"
-              type="number"
-              min={1}
-              value={form.attackRange}
-              onChange={(e) => setField('attackRange', parseInt(e.target.value) || 1)}
-            />
+            <input className="form-input" type="number" min={1} value={form.attackRange} onChange={(e) => setField('attackRange', parseInt(e.target.value) || 1)} />
           </div>
           <div className="form-row">
             <label className="form-label">每回合临时行动点 (tempApPerTurn)</label>
-            <input
-              className="form-input"
-              type="number"
-              min={0}
-              value={form.tempApPerTurn}
-              onChange={(e) => setField('tempApPerTurn', parseInt(e.target.value) || 0)}
-            />
+            <input className="form-input" type="number" min={0} value={form.tempApPerTurn} onChange={(e) => setField('tempApPerTurn', parseInt(e.target.value) || 0)} />
           </div>
           <div className="form-row">
             <label className="form-label">速度 (speed)</label>
-            <input
-              className="form-input"
-              type="number"
-              min={0}
-              value={form.speed}
-              onChange={(e) => setField('speed', parseInt(e.target.value) || 0)}
-            />
+            <input className="form-input" type="number" min={0} value={form.speed} onChange={(e) => setField('speed', parseInt(e.target.value) || 0)} />
           </div>
           <div className="form-row">
             <label className="form-label">暴击率 (critRate, 0-100)</label>
-            <input
-              className="form-input"
-              type="number"
-              min={0}
-              max={100}
-              value={form.critRate}
-              onChange={(e) => setField('critRate', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
-            />
+            <input className="form-input" type="number" min={0} max={100} value={form.critRate} onChange={(e) => setField('critRate', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))} />
           </div>
           <div className="form-row">
             <label className="form-label">幸运值 (luck, 0-100)</label>
-            <input
-              className="form-input"
-              type="number"
-              min={0}
-              max={100}
-              value={form.luck}
-              onChange={(e) => setField('luck', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
-            />
+            <input className="form-input" type="number" min={0} max={100} value={form.luck} onChange={(e) => setField('luck', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))} />
           </div>
         </div>
       </div>
@@ -264,33 +237,70 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
         </div>
       </div>
 
-      {skillTemplates.length > 0 && (
-        <div className="form-section">
-          <h4>默认携带的角色专属技能</h4>
-          <div className="skill-list">
-            {skillTemplates.map((tmpl) => (
-              <label key={tmpl.id} className="skill-checkbox-item">
-                <input
-                  type="checkbox"
-                  checked={(form.defaultSkillTemplateIds ?? []).includes(tmpl.id)}
-                  onChange={() => handleSkillToggle(tmpl.id)}
-                />
-                <span className="skill-card-icon">{tmpl.iconUrl || 'SK'}</span>
-                <span className="skill-name">{tmpl.name}</span>
-                <span className="skill-desc">{tmpl.description}</span>
-                <span className="skill-meta">费用:{tmpl.cost} 范围:{tmpl.range}</span>
-              </label>
-            ))}
+      {/* ── 角色特定技能 ── */}
+      <div className="form-section">
+        <h4>角色特定技能（最多 {MAX_CHARACTER_SKILLS} 个）</h4>
+
+        {/* 已选技能摘要 */}
+        {selectedSkillIds.length > 0 && (
+          <div className="selected-skills-bar">
+            {selectedSkillIds.map((id) => {
+              const tmpl = skillMap.get(id)
+              return tmpl ? (
+                <span key={id} className="selected-skill-chip">
+                  {tmpl.iconUrl ? <img className="selected-skill-chip-icon" src={tmpl.iconUrl} alt="" /> : <span className="selected-skill-chip-icon">技</span>}
+                  {tmpl.name}
+                  <button type="button" className="chip-remove" onClick={() => handleSkillToggle(id)}>✕</button>
+                </span>
+              ) : null
+            })}
           </div>
+        )}
+
+        {/* 搜索 */}
+        <div className="form-row">
+          <input
+            className="form-input"
+            type="text"
+            placeholder="搜索技能名称、描述、ID..."
+            value={skillSearch}
+            onChange={(e) => setSkillSearch(e.target.value)}
+          />
         </div>
-      )}
+
+        {/* 可选技能列表 */}
+        <div className="skill-select-list">
+          {skillTemplates.length === 0 && (
+            <p className="form-hint">暂无可用角色技能。请先在「技能管理」中创建并标记为「角色专属」。</p>
+          )}
+          {filteredSkills.map((tmpl) => {
+            const checked = selectedSkillIds.includes(tmpl.id)
+            return (
+              <label key={tmpl.id} className={`skill-select-item ${checked ? 'checked' : ''}`}>
+                <div className="skill-select-left">
+                  <input type="checkbox" checked={checked} onChange={() => handleSkillToggle(tmpl.id)} />
+                  <span className="skill-select-icon">
+                    {tmpl.iconUrl ? <img src={tmpl.iconUrl} alt={tmpl.name} /> : '技'}
+                  </span>
+                  <div className="skill-select-info">
+                    <div className="skill-select-name">{tmpl.name}</div>
+                    <div className="skill-select-meta">
+                      费{tmpl.cost} | 距{tmpl.range} | {tmpl.effects.map((e) => EFFECT_TYPE_LABELS[e.type] ?? e.type).join(' + ')}
+                    </div>
+                  </div>
+                </div>
+                <div className="skill-select-desc">{tmpl.description}</div>
+              </label>
+            )
+          })}
+          {skillTemplates.length > 0 && filteredSkills.length === 0 && (
+            <p className="form-hint">未找到匹配的技能。</p>
+          )}
+        </div>
+      </div>
 
       <div className="form-actions">
-        <button
-          type="submit"
-          className="btn btn-primary"
-          disabled={submitting}
-        >
+        <button type="submit" className="btn btn-primary" disabled={submitting}>
           {submitting ? '保存中...' : character ? '保存修改' : '创建角色'}
         </button>
       </div>

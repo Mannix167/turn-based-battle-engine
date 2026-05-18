@@ -64,9 +64,12 @@ export default function SkillCard({ instance, template, isSelected, onClick }: P
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
-      <div className="skill-card-icon">{icon}</div>
+      <div className="skill-card-icon">
+        {icon.startsWith('/') || icon.startsWith('http') ? <img src={icon} alt={template.name} /> : icon}
+      </div>
       <div className="skill-card-body">
         <div className="skill-card-name">{template.name}</div>
+        <div className="skill-card-desc">{template.description || '暂无技能描述'}</div>
         <div className="skill-card-meta">
           <span className="skill-cost">行动:{template.cost}</span>
           <span className="skill-range">范围:{template.range}</span>

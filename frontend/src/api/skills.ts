@@ -7,6 +7,11 @@ export async function listCharacterSkillTemplates(): Promise<SkillTemplateRead[]
 }
 
 export async function listAllSkillTemplates(): Promise<SkillTemplateRead[]> {
+  const res = await client.get<SkillTemplateRead[]>('/api/skills/templates?include_disabled=true')
+  return res.data
+}
+
+export async function listEnabledSkillTemplates(): Promise<SkillTemplateRead[]> {
   const res = await client.get<SkillTemplateRead[]>('/api/skills/templates')
   return res.data
 }

@@ -36,14 +36,14 @@ def to_schema(record: CharacterRecord) -> CharacterRead:
 def apply_payload(record: CharacterRecord, payload: CharacterCreate | CharacterUpdate) -> None:
     record.name = payload.name
     record.description = payload.description
-    record.max_hp = payload.maxHp
-    record.base_attack = payload.baseAttack
-    record.base_defense = payload.baseDefense
-    record.attack_range = payload.attackRange
-    record.temp_ap_per_turn = payload.tempApPerTurn
-    record.speed = payload.speed
-    record.crit_rate = payload.critRate
-    record.luck = payload.luck
+    record.max_hp = max(1, payload.maxHp)
+    record.base_attack = max(1, payload.baseAttack)
+    record.base_defense = max(0, payload.baseDefense)
+    record.attack_range = max(1, payload.attackRange)
+    record.temp_ap_per_turn = max(0, payload.tempApPerTurn)
+    record.speed = max(0, payload.speed)
+    record.crit_rate = min(100, max(0, payload.critRate))
+    record.luck = min(100, max(0, payload.luck))
     record.portrait_image_url = payload.portraitImageUrl
     record.token_image_url = payload.tokenImageUrl
     record.default_skill_template_ids = json.dumps(payload.defaultSkillTemplateIds)

@@ -4,17 +4,27 @@ import type { SkillTemplateRead } from '../types/skill'
 import SkillCard from './SkillCard'
 
 const BUFF_ICONS: Record<string, string> = {
-  burn: '🔥',
-  stun: '⭐',
-  sync_hp: '🔗',
-  delayed_damage: '⏰',
-  stat_modifier: '📊',
-  alliance: '🤝',
+  burn: '灼',
+  stun: '晕',
+  sync_hp: '链',
+  damage_sync_link: '链',
+  next_damage_multiplier: '爆',
+  silence: '默',
+  root: '禁',
+  adrenaline: '肾',
+  delayed_damage: '延',
+  stat_modifier: '属',
+  alliance: '盟',
 }
 const BUFF_LABELS: Record<string, string> = {
   burn: '灼烧',
   stun: '眩晕',
   sync_hp: '血量同步',
+  damage_sync_link: '伤害同步',
+  next_damage_multiplier: '下一次伤害强化',
+  silence: '沉默',
+  root: '禁走',
+  adrenaline: '肾上腺素',
   delayed_damage: '延迟伤害',
   stat_modifier: '属性变化',
   alliance: '结盟',
@@ -31,6 +41,8 @@ interface Props {
   onEndAction: () => void
   interactionMode: string
   errorMessage: string | null
+  canAct?: boolean
+  panelTitle?: string
 }
 
 function ApDots({ count, color, label }: { count: number; color: string; label: string }) {
@@ -61,6 +73,8 @@ export default function EntityPanel({
   onEndAction,
   interactionMode,
   errorMessage,
+  canAct = true,
+  panelTitle,
 }: Props) {
   if (!entity) {
     return (
@@ -76,6 +90,7 @@ export default function EntityPanel({
   return (
     <div className="entity-panel">
       {/* 立绘与名称 */}
+      {panelTitle && <div className="panel-view-title">{panelTitle}</div>}
       <div className="panel-portrait-row">
         <div className="panel-portrait">
           {portraitImageUrl ? (
@@ -119,8 +134,8 @@ export default function EntityPanel({
 
       {/* 属性简要 */}
       <div className="panel-stats">
-        <div className="panel-stat"><span>攻</span><span>{entity.currentAttack}</span></div>
-        <div className="panel-stat"><span>防</span><span>{entity.currentDefense}</span></div>
+        <div className={`panel-stat ${entity.currentAttack !== entity.baseAttack ? 'stat-changed' : ''}`}><span>攻</span><span>{entity.currentAttack}</span></div>
+        <div className={`panel-stat ${entity.currentDefense !== entity.baseDefense ? 'stat-changed' : ''}`}><span>防</span><span>{entity.currentDefense}</span></div>
         <div className="panel-stat"><span>速</span><span>{entity.speed}</span></div>
         <div className="panel-stat"><span>暴</span><span>{entity.critRate}%</span></div>
         <div className="panel-stat"><span>幸</span><span>{entity.luck}</span></div>
@@ -138,7 +153,7 @@ export default function EntityPanel({
                 className="panel-buff-item"
                 title={`${BUFF_LABELS[se.type] ?? se.type}${se.remainingTurns != null ? ` (${se.remainingTurns}回合)` : ''}`}
               >
-                <span className="panel-buff-icon">{BUFF_ICONS[se.type] ?? '❓'}</span>
+                <span className="panel-buff-icon">{BUFF_ICONS[se.type] ?? '状'}</span>
                 <span className="panel-buff-turns">
                   {se.remainingTurns != null ? se.remainingTurns : '∞'}
                 </span>
@@ -171,6 +186,7 @@ export default function EntityPanel({
       )}
 
       {/* 操作按钮 */}
+      {canAct ? (
       <div className="panel-actions">
         {errorMessage && <div className="panel-error">{errorMessage}</div>}
         <div className="panel-action-buttons">
@@ -178,13 +194,13 @@ export default function EntityPanel({
             className={`btn ${interactionMode === 'attacking' ? 'btn-active' : 'btn-secondary'}`}
             onClick={onBasicAttack}
           >
-            ⚔️ 普通攻击
+            普通攻击
           </button>
           <button className="btn btn-secondary" onClick={onDigTreasure}>
-            🎁 挖宝
+            挖宝
           </button>
           <button className="btn btn-danger" onClick={onEndAction}>
-            ✓ 结束行动
+            结束行动
           </button>
         </div>
         {interactionMode !== 'idle' && (
@@ -196,6 +212,9 @@ export default function EntityPanel({
           </div>
         )}
       </div>
+      ) : (
+        <div className="panel-inspect-note">当前为查看模式。选择当前行动单位可操作。</div>
+      )}
     </div>
   )
 }

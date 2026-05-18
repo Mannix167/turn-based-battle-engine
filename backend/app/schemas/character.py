@@ -5,7 +5,7 @@ class CharacterBase(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""
     maxHp: int = Field(default=100, ge=1)
-    baseAttack: int = Field(default=20, ge=0)
+    baseAttack: int = Field(default=20, ge=1)
     baseDefense: int = Field(default=5, ge=0)
     attackRange: int = Field(default=1, ge=1)
     tempApPerTurn: int = Field(default=2, ge=0)

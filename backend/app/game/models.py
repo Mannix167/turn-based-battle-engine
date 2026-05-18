@@ -47,6 +47,16 @@ class PendingReward:
 
 
 @dataclass
+class DamageEvent:
+    sourceEntityId: str
+    targetEntityId: str
+    amount: int
+    isCrit: bool = False
+    rawDamage: int = 0
+    linkedFromEntityId: str | None = None
+
+
+@dataclass
 class BattleEntity:
     id: str
     type: EntityType
@@ -114,6 +124,7 @@ class GameState:
     alliances: list[AllianceLink] = field(default_factory=list)
     pendingRewards: dict[str, PendingReward] = field(default_factory=dict)
     recentDamagedEntityIds: list[str] = field(default_factory=list)
+    recentDamageEvents: list[DamageEvent] = field(default_factory=list)
     isFinished: bool = False
     winnerGroup: list[str] = field(default_factory=list)
     log: list[str] = field(default_factory=list)

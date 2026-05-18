@@ -53,6 +53,8 @@ def advance_to_next_actor(state: GameState) -> str | None:
 def end_current_action(state: GameState, entity_id: str) -> None:
     if state.currentEntityId != entity_id:
         raise TurnQueueError("Only the current actor can end action")
+    state.recentDamagedEntityIds = []
+    state.recentDamageEvents = []
     end_action(state.entities[entity_id])
     state.log.append(f"{state.entities[entity_id].name} ends action")
     state.currentEntityId = None

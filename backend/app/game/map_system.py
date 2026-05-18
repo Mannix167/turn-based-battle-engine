@@ -33,7 +33,7 @@ def occupied_treasure_at(state: GameState, pos: Position) -> bool:
 
 
 def is_occupied(state: GameState, pos: Position) -> bool:
-    return occupied_entity_at(state, pos) is not None or occupied_treasure_at(state, pos)
+    return occupied_entity_at(state, pos) is not None
 
 
 def assert_empty_valid_cell(state: GameState, pos: Position) -> None:

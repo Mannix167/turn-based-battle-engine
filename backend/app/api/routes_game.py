@@ -40,6 +40,7 @@ def serialize_state(state: GameState) -> GameStateRead:
         entities=[asdict(entity) for entity in state.entities.values()],
         treasures=[{"type": "treasure", **asdict(treasure)} for treasure in state.treasures.values()],
         pendingRewards={key: asdict(value) for key, value in state.pendingRewards.items()},
+        recentDamageEvents=[asdict(event) for event in state.recentDamageEvents],
         isFinished=state.isFinished,
         winnerGroup=state.winnerGroup,
         log=state.log,
@@ -81,6 +82,11 @@ def start_game(payload: StartGameRequest, db: Session = Depends(get_db)) -> Game
     )
     seen_positions: set[Position] = set()
     entities: list[BattleEntity] = []
+    fixed_blocking_positions = {
+        Position(fixed.x, fixed.y)
+        for fixed in map_template.fixedEntities
+        if fixed.type == "monster"
+    }
     for index, entity_id in enumerate(payload.entityIds, start=1):
         if entity_id not in payload.positions:
             raise HTTPException(status_code=400, detail=f"Missing position for entity: {entity_id}")
@@ -90,6 +96,8 @@ def start_game(payload: StartGameRequest, db: Session = Depends(get_db)) -> Game
             raise HTTPException(status_code=400, detail=f"Invalid deployment cell for entity: {entity_id}")
         if game_pos in seen_positions:
             raise HTTPException(status_code=400, detail=f"Deployment cell is occupied: ({pos.x}, {pos.y})")
+        if game_pos in fixed_blocking_positions:
+            raise HTTPException(status_code=400, detail=f"Deployment cell has a monster: ({pos.x}, {pos.y})")
         seen_positions.add(game_pos)
         record = db.get(CharacterRecord, entity_id)
         if not record:
@@ -237,6 +245,7 @@ def use_skill(game_id: str, payload: UseSkillRequest, db: Session = Depends(get_
             payload.skillInstanceId,
             template,
             target_id=payload.targetEntityId,
+            second_target_id=payload.secondTargetEntityId,
             target_position=target_position,
             direction=payload.direction,
         )

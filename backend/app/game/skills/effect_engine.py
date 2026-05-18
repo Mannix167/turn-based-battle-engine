@@ -1,9 +1,12 @@
 from collections.abc import Callable
+from math import ceil
+from random import randint
 from uuid import uuid4
 
 from app.game.action_points import consume_ap
 from app.game.alliance import add_alliance, remove_alliance
-from app.game.damage import apply_damage
+from app.game.damage import apply_damage_to_state, apply_fixed_damage_to_state
+from app.game.distance import manhattan
 from app.game.map_system import assert_empty_valid_cell
 from app.game.models import BattleEntity, Direction, GameState, Position, StatusEffect
 from app.game.reward import grant_skill
@@ -26,6 +29,7 @@ class EffectEngine:
             "add_buff": self._add_buff,
             "remove_buff": self._remove_buff,
             "modify_stat": self._modify_stat,
+            "set_stat_temporarily": self._set_stat_temporarily,
             "add_permanent_ap": self._add_permanent_ap,
             "add_temporary_ap": self._add_temporary_ap,
             "grant_permanent_ap": self._add_permanent_ap,
@@ -33,11 +37,19 @@ class EffectEngine:
             "grant_random_common_skill": self._grant_random_common_skill,
             "extra_turn_next_round": self._extra_turn_next_round,
             "alliance": self._alliance,
+            "create_alliance": self._alliance,
             "remove_alliance": self._remove_alliance,
             "delayed_damage": self._delayed_damage,
+            "delayed_area_damage": self._delayed_area_damage,
+            "link_damage_sync": self._link_damage_sync,
+            "swap_current_hp": self._swap_current_hp,
+            "conditional_execute": self._conditional_execute,
+            "instant_kill": self._instant_kill,
+            "random_damage": self._random_damage,
             "summon": self._summon,
             "grant_skill": self._grant_skill,
         }
+        self.template: SkillTemplate | None = None
         self.target_position: Position | None = None
 
     def apply(
@@ -46,16 +58,32 @@ class EffectEngine:
         caster: BattleEntity,
         template: SkillTemplate,
         target_id: str | None = None,
+        second_target_id: str | None = None,
         target_position: Position | None = None,
         direction: Direction | None = None,
     ) -> None:
+        self.template = template
         self.target_position = target_position
         state.recentDamagedEntityIds = []
-        targets = resolve_targets(state, caster, template, target_id, target_position, direction)
+        state.recentDamageEvents = []
+        targets = resolve_targets(state, caster, template, target_id, second_target_id, target_position, direction)
+        targets = expand_area_targets(state, caster, template, targets, target_position)
         for effect in template.effects:
             handler = self.handlers.get(effect.type)
             if not handler:
                 raise EffectEngineError(f"Effect type is not implemented: {effect.type}")
+            effect = effect_with_metadata_fields(effect)
+            if effect.type == "damage" and template.affectSelfDamage:
+                metadata = {**effect.metadata, "affectSelfDamage": True}
+                effect = EffectConfig(
+                    type=effect.type,
+                    value=effect.value,
+                    duration=effect.duration,
+                    delayTurns=effect.delayTurns,
+                    stat=effect.stat,
+                    buffType=effect.buffType,
+                    metadata=metadata,
+                )
             handler(state, caster, targets, effect)
 
     def _damage(
@@ -67,21 +95,33 @@ class EffectEngine:
     ) -> None:
         value = effect.value
         if value is None:
-            raise EffectEngineError("Damage effect requires value")
+            if effect.metadata.get("damageType") != "percent_max_hp":
+                raise EffectEngineError("Damage effect requires value")
         for target in targets:
+            amount_value = value
+            if effect.metadata.get("damageType") == "percent_max_hp":
+                amount_value = ceil(target.maxHp * float(effect.metadata.get("percent", 0)))
             if effect.metadata.get("fixedDamage"):
-                amount = 0 if caster.id == target.id else value
-                target.currentHp = max(0, target.currentHp - amount)
-                if amount > 0:
-                    state.recentDamagedEntityIds.append(target.id)
-                if target.currentHp <= 0:
-                    target.isAlive = False
-                    target.statusEffects.clear()
+                amount = apply_fixed_damage_to_state(
+                    state,
+                    caster,
+                    target,
+                    amount_value or 0,
+                    allow_self=bool(effect.metadata.get("affectSelfDamage")),
+                )
                 state.log.append(f"{caster.name}'s effect damaged {target.name} for {amount}")
             else:
-                result = apply_damage(caster, target, base_damage=value)
-                if result.amount > 0:
-                    state.recentDamagedEntityIds.append(target.id)
+                if effect.metadata.get("damageType") in {"true", "percent_max_hp"}:
+                    amount = apply_fixed_damage_to_state(
+                        state,
+                        caster,
+                        target,
+                        amount_value or 0,
+                        allow_self=bool(effect.metadata.get("affectSelfDamage")),
+                    )
+                    state.log.append(f"{caster.name}'s effect damaged {target.name} for {amount}")
+                    continue
+                result = apply_damage_to_state(state, caster, target, base_damage=amount_value)
                 state.log.append(f"{caster.name}'s effect damaged {target.name} for {result.amount}")
 
     def _heal(
@@ -161,6 +201,35 @@ class EffectEngine:
                     )
                 )
 
+    def _set_stat_temporarily(
+        self,
+        state: GameState,
+        caster: BattleEntity,
+        targets: list[BattleEntity],
+        effect: EffectConfig,
+    ) -> None:
+        stat = effect.metadata.get("stat")
+        duration = effect.metadata.get("duration")
+        if not stat or duration is None:
+            raise EffectEngineError("set_stat_temporarily requires metadata.stat and metadata.duration")
+        for target in targets:
+            field_name = stat_field_name(stat)
+            current = getattr(target, field_name)
+            delta = (effect.value or 0) - current
+            _change_stat(target, stat, delta)
+            target.statusEffects.append(
+                StatusEffect(
+                    id=f"status_{uuid4().hex[:10]}",
+                    type="stat_modifier",
+                    sourceEntityId=caster.id,
+                    targetEntityId=target.id,
+                    duration=duration,
+                    remainingTurns=duration,
+                    value=delta,
+                    metadata={"stat": stat},
+                )
+            )
+
     def _add_permanent_ap(
         self,
         state: GameState,
@@ -236,6 +305,115 @@ class EffectEngine:
                 )
             )
 
+    def _delayed_area_damage(
+        self,
+        state: GameState,
+        caster: BattleEntity,
+        targets: list[BattleEntity],
+        effect: EffectConfig,
+    ) -> None:
+        if self.target_position is None:
+            raise EffectEngineError("delayed_area_damage requires target position")
+        caster.statusEffects.append(
+            StatusEffect(
+                id=f"status_{uuid4().hex[:10]}",
+                type="delayed_area_damage",
+                sourceEntityId=caster.id,
+                targetEntityId=caster.id,
+                duration=effect.metadata.get("delayRounds", effect.delayTurns or 3),
+                remainingTurns=effect.metadata.get("delayRounds", effect.delayTurns or 3),
+                value=effect.value,
+                metadata={
+                    **effect.metadata,
+                    "x": self.target_position.x,
+                    "y": self.target_position.y,
+                    "areaType": self.template.areaType if self.template else "square",
+                    "areaSize": self.template.areaSize if self.template else 3,
+                },
+            )
+        )
+
+    def _link_damage_sync(
+        self,
+        state: GameState,
+        caster: BattleEntity,
+        targets: list[BattleEntity],
+        effect: EffectConfig,
+    ) -> None:
+        if len(targets) != 2:
+            raise EffectEngineError("link_damage_sync requires two targets")
+        a, b = targets
+        duration = effect.metadata.get("duration", effect.duration or 3)
+        for target, linked in ((a, b), (b, a)):
+            target.statusEffects.append(
+                StatusEffect(
+                    id=f"status_{uuid4().hex[:10]}",
+                    type="damage_sync_link",
+                    sourceEntityId=caster.id,
+                    targetEntityId=target.id,
+                    duration=duration,
+                    remainingTurns=duration,
+                    value=effect.value,
+                    metadata={"linkedEntityId": linked.id},
+                )
+            )
+
+    def _swap_current_hp(
+        self,
+        state: GameState,
+        caster: BattleEntity,
+        targets: list[BattleEntity],
+        effect: EffectConfig,
+    ) -> None:
+        if len(targets) != 2:
+            raise EffectEngineError("swap_current_hp requires two targets")
+        a, b = targets
+        a_hp, b_hp = a.currentHp, b.currentHp
+        a.currentHp = min(b_hp, a.maxHp)
+        b.currentHp = min(a_hp, b.maxHp)
+
+    def _conditional_execute(
+        self,
+        state: GameState,
+        caster: BattleEntity,
+        targets: list[BattleEntity],
+        effect: EffectConfig,
+    ) -> None:
+        percent = float(effect.metadata.get("percent", 0.15))
+        for target in targets:
+            if target.currentHp < target.maxHp * percent:
+                amount = apply_fixed_damage_to_state(state, caster, target, target.currentHp, allow_self=True)
+                state.log.append(f"{caster.name}'s effect executed {target.name} for {amount}")
+
+    def _instant_kill(
+        self,
+        state: GameState,
+        caster: BattleEntity,
+        targets: list[BattleEntity],
+        effect: EffectConfig,
+    ) -> None:
+        for target in targets:
+            amount = apply_fixed_damage_to_state(state, caster, target, target.currentHp, allow_self=True)
+            state.log.append(f"{caster.name}'s effect instantly defeated {target.name} for {amount}")
+
+    def _random_damage(
+        self,
+        state: GameState,
+        caster: BattleEntity,
+        targets: list[BattleEntity],
+        effect: EffectConfig,
+    ) -> None:
+        sides = int(effect.metadata.get("sides", 6))
+        multiplier = int(effect.metadata.get("multiplier", 5))
+        roll = randint(1, sides)
+        self._damage(
+            state,
+            caster,
+            targets,
+            EffectConfig(type="damage", value=roll * multiplier, metadata=effect.metadata),
+        )
+        state.log.append(f"{caster.name}'s random hit rolled {roll}")
+
     def _summon(
         self,
         state: GameState,
@@ -305,6 +483,7 @@ def use_skill(
     skill_instance_id: str,
     template: SkillTemplate,
     target_id: str | None = None,
+    second_target_id: str | None = None,
     target_position: Position | None = None,
     direction: Direction | None = None,
 ) -> None:
@@ -318,19 +497,92 @@ def use_skill(
     if instance.templateId != template.id:
         raise EffectEngineError("Skill instance does not match template")
     consume_ap(caster, template.cost)
-    EffectEngine().apply(state, caster, template, target_id, target_position, direction)
+    EffectEngine().apply(state, caster, template, target_id, second_target_id, target_position, direction)
     caster.skillInstances = [skill for skill in caster.skillInstances if skill.instanceId != skill_instance_id]
     state.log.append(f"{caster.name} used {template.name}")
 
 
 def _change_stat(entity: BattleEntity, stat: str, value: int) -> None:
+    field_name = stat_field_name(stat)
+    setattr(entity, field_name, getattr(entity, field_name) + value)
+    clamp_entity_stats(entity)
+
+
+def clamp_entity_stats(entity: BattleEntity) -> None:
+    entity.maxHp = max(1, entity.maxHp)
+    entity.currentHp = max(0, min(entity.currentHp, entity.maxHp))
+    entity.baseAttack = max(1, entity.baseAttack)
+    entity.currentAttack = max(1, entity.currentAttack)
+    entity.baseDefense = max(0, entity.baseDefense)
+    entity.currentDefense = max(0, entity.currentDefense)
+    entity.attackRange = max(1, entity.attackRange)
+    entity.tempApPerTurn = max(0, entity.tempApPerTurn)
+    entity.permanentAP = max(0, entity.permanentAP)
+    entity.temporaryAP = max(0, entity.temporaryAP)
+    entity.speed = max(0, entity.speed)
+    entity.critRate = min(100, max(0, entity.critRate))
+    entity.luck = min(100, max(0, entity.luck))
+
+
+def stat_field_name(stat: str) -> str:
     field_name = {
         "attack": "currentAttack",
+        "baseAttack": "currentAttack",
         "defense": "currentDefense",
+        "baseDefense": "currentDefense",
         "speed": "speed",
         "luck": "luck",
         "critRate": "critRate",
+        "temporaryApPerTurn": "tempApPerTurn",
     }.get(stat)
     if not field_name:
         raise EffectEngineError(f"Unsupported stat: {stat}")
-    setattr(entity, field_name, getattr(entity, field_name) + value)
+    return field_name
+
+
+def expand_area_targets(
+    state: GameState,
+    caster: BattleEntity,
+    template: SkillTemplate,
+    targets: list[BattleEntity],
+    target_position: Position | None,
+) -> list[BattleEntity]:
+    if template.areaType not in {"cross", "square", "circle"}:
+        return targets
+    center = target_position or (targets[0].position if targets else caster.position)
+    radius = max(1, template.areaSize // 2)
+    expanded: list[BattleEntity] = []
+    for entity in state.entities.values():
+        if not entity.isAlive:
+            continue
+        if entity.id == caster.id and not template.affectSelfDamage:
+            continue
+        dx = abs(entity.x - center.x)
+        dy = abs(entity.y - center.y)
+        in_area = False
+        if template.areaType == "square":
+            in_area = dx <= radius and dy <= radius
+        elif template.areaType == "circle":
+            in_area = manhattan(center, entity.position) <= radius
+        elif template.areaType == "cross":
+            in_area = (dx == 0 and dy <= radius) or (dy == 0 and dx <= radius)
+        if in_area:
+            expanded.append(entity)
+    return expanded
+
+
+def effect_with_metadata_fields(effect: EffectConfig) -> EffectConfig:
+    metadata = dict(effect.metadata)
+    for key in ("duration", "delayTurns", "stat", "buffType"):
+        value = getattr(effect, key)
+        if value is not None:
+            metadata[key] = value
+    return EffectConfig(
+        type=effect.type,
+        value=effect.value,
+        duration=effect.duration,
+        delayTurns=effect.delayTurns,
+        stat=effect.stat,
+        buffType=effect.buffType,
+        metadata=metadata,
+    )

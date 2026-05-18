@@ -105,3 +105,49 @@ def test_line_skill_hits_non_allied_targets_in_direction() -> None:
     assert enemy_one.currentHp == 90
     assert ally.currentHp == 100
     assert enemy_two.currentHp == 90
+    assert [(event.targetEntityId, event.amount) for event in state.recentDamageEvents] == [("b", 10), ("d", 10)]
+
+
+def test_damage_sync_link_mirrors_later_damage() -> None:
+    caster = demo_entity("a", "A", 0, 0, 1, speed=10)
+    first = demo_entity("b", "B", 1, 0, 2, speed=8)
+    second = demo_entity("c", "C", 2, 0, 3, speed=7)
+    caster.skillInstances = [
+        SkillInstance("chain_1", "chain", "start_common"),
+        SkillInstance("zap_1", "zap", "start_common"),
+    ]
+    state = create_state(DEFAULT_MAP, [caster, first, second])
+    chain = SkillTemplate(
+        id="chain",
+        name="Chain",
+        description="",
+        category="common",
+        cost=1,
+        range=3,
+        targetType="twoEntities",
+        areaType="single",
+        effects=[EffectConfig(type="link_damage_sync", duration=3)],
+        canTargetEnemy=True,
+    )
+    zap = SkillTemplate(
+        id="zap",
+        name="Zap",
+        description="",
+        category="common",
+        cost=1,
+        range=3,
+        targetType="single",
+        areaType="single",
+        effects=[EffectConfig(type="damage", value=12, metadata={"fixedDamage": True})],
+        canTargetEnemy=True,
+    )
+
+    use_skill(state, "a", "chain_1", chain, target_id="b", second_target_id="c")
+    use_skill(state, "a", "zap_1", zap, target_id="b")
+
+    assert first.currentHp == 88
+    assert second.currentHp == 88
+    assert [(event.targetEntityId, event.amount, event.linkedFromEntityId) for event in state.recentDamageEvents] == [
+        ("b", 12, None),
+        ("c", 12, "b"),
+    ]

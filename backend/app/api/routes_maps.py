@@ -102,14 +102,20 @@ def validate_map_payload(payload: MapCreate) -> MapValidationResult:
     for x, y in enabled:
         if x < 0 or y < 0 or x >= payload.width or y >= payload.height:
             errors.append(f"Enabled cell out of bounds: ({x}, {y})")
-    occupied: set[tuple[int, int]] = set()
+    blocking_occupied: set[tuple[int, int]] = set()
+    treasure_positions: set[tuple[int, int]] = set()
     for entity in payload.fixedEntities:
         pos = (entity.x, entity.y)
         if pos not in enabled:
             errors.append(f"Fixed {entity.type} must be on enabled cell: ({entity.x}, {entity.y})")
-        if pos in occupied:
-            errors.append(f"Fixed entities overlap at ({entity.x}, {entity.y})")
-        occupied.add(pos)
+        if entity.type == "monster":
+            if pos in blocking_occupied:
+                errors.append(f"Blocking fixed entities overlap at ({entity.x}, {entity.y})")
+            blocking_occupied.add(pos)
+        else:
+            if pos in treasure_positions:
+                warnings.append(f"Multiple treasure points overlap at ({entity.x}, {entity.y})")
+            treasure_positions.add(pos)
     for zone in payload.spawnZones:
         for cell in zone.cells:
             if (cell.x, cell.y) not in enabled:
@@ -117,7 +123,7 @@ def validate_map_payload(payload: MapCreate) -> MapValidationResult:
     for rule in payload.randomRules:
         allowed = {(cell.x, cell.y) for cell in rule.allowedCells} if rule.allowedCells else enabled
         excluded = {(cell.x, cell.y) for cell in rule.excludedCells}
-        available = [cell for cell in allowed if cell in enabled and cell not in excluded and cell not in occupied]
+        available = [cell for cell in allowed if cell in enabled and cell not in excluded and cell not in blocking_occupied]
         if rule.count > len(available):
             errors.append(f"Random rule {rule.id} count exceeds available cells")
     if payload.spawnZones:
@@ -204,6 +210,11 @@ def duplicate_map(map_id: str, db: Session = Depends(get_db)) -> MapRead:
 def validate_map(map_id: str, db: Session = Depends(get_db)) -> MapValidationResult:
     source = get_map(map_id, db)
     return validate_map_payload(MapCreate(**source.model_dump(exclude={"createdAt", "updatedAt"})))
+
+
+@router.post("/validate", response_model=MapValidationResult)
+def validate_map_draft(payload: MapCreate) -> MapValidationResult:
+    return validate_map_payload(payload)
 
 
 @router.post("/preview-random-generation")

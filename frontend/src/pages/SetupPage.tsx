@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listMaps } from '../api/maps'
 import { listCharacters } from '../api/characters'
-import { listAllSkillTemplates } from '../api/skills'
+import { listEnabledSkillTemplates } from '../api/skills'
 import { startGame } from '../api/game'
 import type { MapRead } from '../types/map'
 import type { CharacterRead } from '../types/character'
 import type { SkillTemplateRead } from '../types/skill'
+import { TARGET_TYPE_LABELS } from '../types/skill'
 
 type Step = 1 | 2 | 3
 
@@ -28,6 +29,7 @@ export default function SetupPage() {
   const [selectedCharIds, setSelectedCharIds] = useState<string[]>([])
   const [commonSkills, setCommonSkills] = useState<SkillTemplateRead[]>([])
   const [charSkills, setCharSkills] = useState<CharacterSkillSelection[]>([])
+  const [collapsedSkillLists, setCollapsedSkillLists] = useState<Record<string, boolean>>({})
 
   // Step 3
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({})
@@ -37,11 +39,11 @@ export default function SetupPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([listMaps(), listCharacters(), listAllSkillTemplates()]).then(
+    Promise.all([listMaps(), listCharacters(), listEnabledSkillTemplates()]).then(
       ([m, c, s]) => {
         setMaps(m)
         setCharacters(c)
-        setCommonSkills(s.filter((t) => t.category === 'common'))
+        setCommonSkills(s.filter((t) => t.category === 'common' && t.usableAs.includes('common')))
       }
     )
   }, [])
@@ -78,6 +80,10 @@ export default function SetupPage() {
         return { ...s, skillTemplateIds: ids }
       })
     )
+  }
+
+  const toggleSkillListCollapsed = (charId: string) => {
+    setCollapsedSkillLists((prev) => ({ ...prev, [charId]: !prev[charId] }))
   }
 
   const goStep3 = () => {
@@ -261,26 +267,44 @@ export default function SetupPage() {
                   </div>
                   {isSelected && commonSkills.length > 0 && (
                     <div className="char-skill-select">
-                      <div className="char-skill-label">开局通用技能：</div>
-                      <div className="char-skill-grid">
+                      <div className="char-skill-label">
+                        <span>开局通用技能</span>
+                        <span className="char-skill-count">已选 {skillSel?.skillTemplateIds.length ?? 0}</span>
+                        <button
+                          type="button"
+                          className="skill-list-collapse-btn"
+                          onClick={() => toggleSkillListCollapsed(char.id)}
+                        >
+                          {collapsedSkillLists[char.id] ? '展开' : '收起'}
+                        </button>
+                      </div>
+                      {!collapsedSkillLists[char.id] && <div className="setup-skill-card-grid">
                         {commonSkills.map((tmpl) => {
                           const checked = skillSel?.skillTemplateIds.includes(tmpl.id) ?? false
                           return (
-                            <label
+                            <button
                               key={tmpl.id}
-                              className={`char-skill-tag ${checked ? 'checked' : ''}`}
+                              type="button"
+                              className={`setup-skill-card ${checked ? 'checked' : ''}`}
+                              onClick={() => toggleCharSkill(char.id, tmpl.id)}
                             >
-                              <input
-                                type="checkbox"
-                                style={{ display: 'none' }}
-                                checked={checked}
-                                onChange={() => toggleCharSkill(char.id, tmpl.id)}
-                              />
-                              {tmpl.name}
-                            </label>
+                              <span className="setup-skill-check" aria-hidden="true" />
+                              <span className="setup-skill-icon">
+                                {tmpl.iconUrl ? <img src={tmpl.iconUrl} alt={tmpl.name} /> : '技'}
+                              </span>
+                              <span className="setup-skill-info">
+                                <span className="setup-skill-name">{tmpl.name}</span>
+                                <span className="setup-skill-desc">{tmpl.description || '暂无技能描述'}</span>
+                                <span className="setup-skill-meta">
+                                  <span>行动 {tmpl.cost}</span>
+                                  <span>范围 {tmpl.range}</span>
+                                  <span>{TARGET_TYPE_LABELS[tmpl.targetType]}</span>
+                                </span>
+                              </span>
+                            </button>
                           )
                         })}
-                      </div>
+                      </div>}
                     </div>
                   )}
                 </div>

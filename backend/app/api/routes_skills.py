@@ -3,7 +3,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -15,9 +15,37 @@ from app.schemas.skill import SkillTemplateCreate, SkillTemplateRead, SkillTempl
 
 router = APIRouter()
 
+ICON_PALETTE = [
+    ("#203864", "#6fa8dc"),
+    ("#5b2c6f", "#d7bde2"),
+    ("#7d3c28", "#f5b041"),
+    ("#145a32", "#58d68d"),
+    ("#641e16", "#ec7063"),
+    ("#0e6251", "#76d7c4"),
+]
+
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+@router.get("/icons/{skill_id}.svg")
+def skill_icon(skill_id: str) -> Response:
+    first, second = ICON_PALETTE[sum(ord(char) for char in skill_id) % len(ICON_PALETTE)]
+    angle = (sum(ord(char) for char in skill_id) % 4) * 45
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="{second}"/>
+      <stop offset="1" stop-color="{first}"/>
+    </linearGradient>
+  </defs>
+  <rect width="96" height="96" rx="18" fill="{first}"/>
+  <circle cx="48" cy="48" r="34" fill="url(#g)" opacity="0.96"/>
+  <path d="M48 18 L58 42 L84 48 L58 54 L48 78 L38 54 L12 48 L38 42 Z" fill="#fff" opacity="0.82" transform="rotate({angle} 48 48)"/>
+  <circle cx="48" cy="48" r="10" fill="{first}" opacity="0.88"/>
+</svg>"""
+    return Response(content=svg, media_type="image/svg+xml")
 
 
 def record_to_template(record: SkillRecord) -> SkillTemplate:
@@ -34,11 +62,16 @@ def record_to_template(record: SkillRecord) -> SkillTemplate:
         range=record.range,
         targetType=record.target_type,
         areaType=record.area_type,
+        areaSize=record.area_size,
+        affectSelfDamage=bool(record.affect_self_damage),
         canTargetSelf=bool(record.can_target_self),
         canTargetAlly=bool(record.can_target_ally),
         canTargetEnemy=bool(record.can_target_enemy),
         canTargetEmptyCell=bool(record.can_target_empty_cell),
-        effects=[EffectConfig(**effect) for effect in json.loads(record.effects_json or "[]")],
+        canTargetMonster=bool(record.can_target_monster),
+        canTargetSummon=bool(record.can_target_summon),
+        canTargetTreasure=bool(record.can_target_treasure),
+        effects=[normalize_effect(effect) for effect in json.loads(record.effects_json or "[]")],
     )
 
 
@@ -53,27 +86,57 @@ def all_templates(db: Session) -> dict[str, SkillTemplate]:
     return templates
 
 
+def normalize_effect(effect: dict) -> EffectConfig:
+    metadata = dict(effect.get("metadata") or {})
+    for key in ("duration", "delayTurns", "stat", "buffType"):
+        if effect.get(key) is not None:
+            metadata[key] = effect[key]
+    return EffectConfig(
+        type=effect["type"],
+        value=effect.get("value"),
+        duration=effect.get("duration"),
+        delayTurns=effect.get("delayTurns"),
+        stat=effect.get("stat"),
+        buffType=effect.get("buffType"),
+        metadata=metadata,
+    )
+
+
+def dump_effect(effect) -> dict:
+    metadata = dict(effect.metadata)
+    for key in ("duration", "delayTurns", "stat", "buffType"):
+        value = getattr(effect, key, None)
+        if value is not None:
+            metadata[key] = value
+    return {
+        "type": effect.type,
+        "value": effect.value,
+        "duration": effect.duration,
+        "delayTurns": effect.delayTurns,
+        "stat": effect.stat,
+        "buffType": effect.buffType,
+        "metadata": metadata,
+    }
+
+
 def validate_skill_payload(payload: SkillTemplateCreate | SkillTemplateUpdate) -> list[str]:
     errors: list[str] = []
     if not payload.name.strip():
         errors.append("Skill name is required")
     if not payload.effects:
         errors.append("At least one effect is required")
-    allowed_pairs = {
-        ("self", "single"),
-        ("self", "none"),
-        ("single", "single"),
-        ("emptyCell", "single"),
-        ("direction", "line"),
-    }
+    area_center_types = {"self", "single", "emptyCell"}
+    area_types = {"single", "cross", "square", "circle"}
+    allowed_pairs = {(target, area) for target in area_center_types for area in area_types}
+    allowed_pairs.update({("self", "none"), ("direction", "line"), ("twoEntities", "single")})
     if (payload.targetType, payload.areaType) not in allowed_pairs:
         errors.append("Invalid targetType and areaType combination")
     for effect in payload.effects:
-        if effect.type in {"damage", "heal", "modify_stat", "delayed_damage"} and effect.value is None:
+        if effect.type in {"damage", "heal", "modify_stat", "set_stat_temporarily", "delayed_damage"} and effect.value is None and effect.metadata.get("damageType") != "percent_max_hp":
             errors.append(f"Effect {effect.type} requires value")
-        if effect.type == "add_buff" and not (effect.metadata.get("buffType") or effect.metadata.get("type")):
+        if effect.type == "add_buff" and not (effect.buffType or effect.metadata.get("buffType") or effect.metadata.get("type")):
             errors.append("add_buff requires metadata.buffType")
-        if effect.type == "modify_stat" and not effect.metadata.get("stat"):
+        if effect.type == "modify_stat" and not (effect.stat or effect.metadata.get("stat")):
             errors.append("modify_stat requires metadata.stat")
         if effect.type == "summon" and payload.targetType != "emptyCell":
             errors.append("summon effect requires emptyCell targetType")
@@ -93,19 +156,36 @@ def apply_payload(record: SkillRecord, payload: SkillTemplateCreate | SkillTempl
     record.range = payload.range
     record.target_type = payload.targetType
     record.area_type = payload.areaType
+    record.area_size = payload.areaSize
+    record.affect_self_damage = 1 if payload.affectSelfDamage else 0
     record.can_target_self = 1 if payload.canTargetSelf else 0
     record.can_target_ally = 1 if payload.canTargetAlly else 0
     record.can_target_enemy = 1 if payload.canTargetEnemy else 0
     record.can_target_empty_cell = 1 if payload.canTargetEmptyCell else 0
-    record.effects_json = json.dumps([effect.model_dump() for effect in payload.effects])
+    record.can_target_monster = 1 if payload.canTargetMonster else 0
+    record.can_target_summon = 1 if payload.canTargetSummon else 0
+    record.can_target_treasure = 1 if payload.canTargetTreasure else 0
+    record.effects_json = json.dumps([dump_effect(effect) for effect in payload.effects])
     record.updated_at = stamp
     if not record.created_at:
         record.created_at = stamp
 
 
 @router.get("/templates", response_model=list[SkillTemplateRead])
-def list_templates(db: Session = Depends(get_db)) -> list[dict]:
-    return [template_to_schema(template) for template in all_templates(db).values() if template.enabled]
+def list_templates(
+    include_disabled: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    return [
+        template_to_schema(template)
+        for template in all_templates(db).values()
+        if include_disabled or template.enabled
+    ]
+
+
+@router.get("/templates/all", response_model=list[SkillTemplateRead])
+def list_all_templates(db: Session = Depends(get_db)) -> list[dict]:
+    return [template_to_schema(template) for template in all_templates(db).values()]
 
 
 @router.get("/templates/common", response_model=list[SkillTemplateRead])

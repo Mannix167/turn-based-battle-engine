@@ -93,6 +93,7 @@ class UseSkillRequest(BaseModel):
     casterId: str
     skillInstanceId: str
     targetEntityId: str | None = None
+    secondTargetEntityId: str | None = None
     targetCell: Position | None = None
     direction: Literal["up", "down", "left", "right"] | None = None
 
@@ -118,6 +119,15 @@ class PendingRewardSchema(BaseModel):
     availableTemplateIds: list[str]
 
 
+class DamageEventSchema(BaseModel):
+    sourceEntityId: str
+    targetEntityId: str
+    amount: int
+    isCrit: bool = False
+    rawDamage: int = 0
+    linkedFromEntityId: str | None = None
+
+
 class GameStateRead(BaseModel):
     gameId: str
     mapId: str
@@ -127,6 +137,7 @@ class GameStateRead(BaseModel):
     entities: list[BattleEntitySchema]
     treasures: list[TreasureEntitySchema] = []
     pendingRewards: dict[str, PendingRewardSchema] = {}
+    recentDamageEvents: list[DamageEventSchema] = []
     isFinished: bool = False
     winnerGroup: list[str] = []
     log: list[str] = []

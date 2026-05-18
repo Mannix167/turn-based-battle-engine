@@ -317,6 +317,12 @@ ul {
   object-fit: cover;
 }
 
+.character-list-item-portrait.portrait-placeholder-sm img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
 .portrait-placeholder-sm {
   width: 100%;
   height: 100%;
@@ -876,6 +882,9 @@ ul {
 }
 
 .char-skill-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 12px;
   border-radius: 20px;
   border: 1px solid #3a4a6a;
@@ -884,6 +893,13 @@ ul {
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
+}
+
+.char-skill-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .char-skill-tag.checked {
@@ -1534,6 +1550,13 @@ ul {
 
 .skill-card-icon { font-size: 22px; flex-shrink: 0; line-height: 1; }
 
+.skill-card-icon img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
+}
+
 .skill-card-body { flex: 1; min-width: 0; }
 
 .skill-card-name {
@@ -1544,6 +1567,17 @@ ul {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.skill-card-desc {
+  color: #9aa8ce;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-bottom: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .skill-card-meta {
@@ -1703,3 +1737,1397 @@ ul {
 .victory-round { font-size: 13px; color: #8898b8; }
 
 .victory-actions { display: flex; gap: 12px; justify-content: center; }
+
+/* =========================================================
+   地图编辑器
+   ========================================================= */
+.map-editor-grid-wrap {
+  overflow: auto;
+  max-height: 420px;
+  padding: 12px;
+  background: #0d1117;
+  border-radius: 8px;
+  border: 1px solid #2a3a6a;
+}
+
+.map-editor-grid {
+  display: grid;
+  gap: 2px;
+  user-select: none;
+}
+
+.map-editor-cell {
+  border: 1px solid #2a3a6a;
+  border-radius: 3px;
+  background: #1a2236;
+  color: #8898b8;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.map-editor-cell:hover { border-color: #7eb8f7; z-index: 1; }
+.map-editor-cell.cell-disabled {
+  background: #0a0a14;
+  color: #555;
+}
+.map-editor-cell.cell-spawn {
+  background: rgba(80, 200, 120, 0.12);
+  border-color: rgba(80, 200, 120, 0.4);
+}
+.map-editor-cell.cell-spawn-active {
+  background: rgba(80, 200, 120, 0.25);
+  border-color: #50c878;
+  box-shadow: 0 0 4px rgba(80, 200, 120, 0.5);
+}
+.map-editor-cell.cell-monster {
+  background: rgba(255, 160, 60, 0.15);
+  border-color: rgba(255, 160, 60, 0.5);
+}
+.map-editor-cell.cell-treasure {
+  background: rgba(255, 215, 0, 0.12);
+  border-color: rgba(255, 215, 0, 0.4);
+}
+.map-editor-cell.mode-cell { cursor: pointer; }
+.map-editor-cell.mode-spawn { cursor: crosshair; }
+
+.edit-mode-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.spawn-zone-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.spawn-zone-item,
+.random-rule-item,
+.fixed-entity-item {
+  background: #0d1117;
+  border: 1px solid #2a3a6a;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: #6a7a9a;
+  margin-top: 6px;
+}
+
+.form-static {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  color: #8898b8;
+  font-size: 14px;
+}
+
+.tag-builtin,
+.tag-disabled {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.tag-builtin {
+  background: rgba(100, 140, 255, 0.2);
+  color: #7ea8f7;
+}
+.tag-disabled {
+  background: rgba(255, 80, 80, 0.2);
+  color: #f06060;
+}
+
+/* =========================================================
+   技能编辑器
+   ========================================================= */
+.effect-item {
+  background: #0d1117;
+  border: 1px solid #2a3a6a;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.effect-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.effect-item-index {
+  font-weight: 600;
+  color: #b0c0e0;
+}
+
+.target-checkboxes {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.target-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #c0c8e0;
+}
+.target-checkbox-item input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: #7eb8f7;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #c0c8e0;
+}
+.toggle-label input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: #7eb8f7;
+}
+
+/* =========================================================
+   角色表单 - 技能选择
+   ========================================================= */
+.selected-skills-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.selected-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(126, 184, 247, 0.15);
+  border: 1px solid rgba(126, 184, 247, 0.35);
+  color: #7eb8f7;
+  border-radius: 14px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.selected-skill-chip-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.24);
+  color: #7eb8f7;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.selected-skill-chip-icon img,
+.skill-select-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.chip-remove {
+  background: none;
+  border: none;
+  color: #f06060;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 12px;
+}
+.chip-remove:hover { color: #ff8888; }
+
+.skill-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.skill-select-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid #2a3a6a;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.skill-select-item:hover { border-color: #4a5a8a; background: rgba(126, 184, 247, 0.04); }
+.skill-select-item.checked { border-color: #7eb8f7; background: rgba(126, 184, 247, 0.08); }
+
+.skill-select-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.skill-select-left input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: #7eb8f7;
+}
+
+.skill-select-icon {
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: #7eb8f7;
+  font-weight: 800;
+  overflow: hidden;
+}
+
+.skill-select-info {
+  flex: 1;
+}
+.skill-select-name {
+  font-weight: 600;
+  color: #d0d8f0;
+}
+.skill-select-meta {
+  font-size: 11px;
+  color: #6a7a9a;
+}
+.skill-select-desc {
+  font-size: 12px;
+  color: #8898b8;
+  padding-left: 56px;
+}
+
+/* =========================================================
+   全局界面抛光：导航、编辑器、首页、设置流程
+   ========================================================= */
+.home-page,
+.setup-page,
+.editor-page {
+  background:
+    radial-gradient(circle at 12% 10%, rgba(79, 142, 247, 0.14), transparent 28%),
+    radial-gradient(circle at 86% 18%, rgba(214, 169, 58, 0.12), transparent 32%),
+    linear-gradient(135deg, #090d18 0%, #101326 48%, #0b0a12 100%);
+}
+
+.home-page {
+  max-width: 1180px;
+  padding: 32px 24px 56px;
+}
+
+.home-header {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  border-color: rgba(126, 184, 247, 0.2);
+  background:
+    linear-gradient(120deg, rgba(22, 33, 62, 0.95), rgba(13, 13, 32, 0.9)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 18px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
+}
+
+.home-title {
+  color: #f5f7ff;
+  text-shadow: 0 0 18px rgba(126, 184, 247, 0.24);
+}
+
+.home-actions .btn {
+  min-width: 148px;
+}
+
+.editor-header,
+.setup-header {
+  min-height: 64px;
+  background: rgba(14, 21, 42, 0.92);
+  border-bottom-color: rgba(126, 184, 247, 0.18);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+}
+
+.editor-title,
+.setup-title {
+  color: #f5f7ff;
+  letter-spacing: 0;
+}
+
+.editor-sidebar {
+  width: 340px;
+  background: rgba(14, 25, 52, 0.9);
+  border-right-color: rgba(126, 184, 247, 0.18);
+}
+
+.editor-main {
+  padding: 28px 32px;
+}
+
+.character-form {
+  max-width: 980px;
+}
+
+.form-title {
+  color: #f5f7ff;
+  border-bottom-color: rgba(126, 184, 247, 0.2);
+}
+
+.form-section {
+  padding: 18px;
+  border: 1px solid rgba(126, 184, 247, 0.16);
+  border-radius: 8px;
+  background: rgba(10, 14, 28, 0.42);
+}
+
+.form-section h4 {
+  color: #b9c8f8;
+}
+
+.form-input {
+  min-height: 42px;
+  border-color: rgba(126, 184, 247, 0.22);
+  background: rgba(13, 17, 34, 0.86);
+  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+}
+
+.form-input:hover {
+  border-color: rgba(126, 184, 247, 0.42);
+}
+
+.form-input:focus {
+  border-color: #7eb8f7;
+  box-shadow: 0 0 0 3px rgba(126, 184, 247, 0.12);
+}
+
+.btn {
+  border-radius: 8px;
+  transition: opacity 0.15s, transform 0.1s, border-color 0.18s, box-shadow 0.18s, background 0.18s;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #6ea8ff, #3d7df0);
+  box-shadow: 0 10px 22px rgba(79, 142, 247, 0.2);
+}
+
+.btn-secondary {
+  background: rgba(58, 58, 92, 0.78);
+}
+
+.btn:hover:not(:disabled) {
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
+}
+
+.setup-body {
+  max-width: 1180px;
+}
+
+.setup-step-title {
+  color: #f5f7ff;
+}
+
+.setup-hint {
+  color: #aebbe2;
+}
+
+.setup-step-dot {
+  border: 1px solid rgba(126, 184, 247, 0.22);
+}
+
+.setup-step-dot.active {
+  box-shadow: 0 0 0 4px rgba(79, 142, 247, 0.16);
+}
+
+.map-card,
+.char-select-item,
+.deploy-char-item,
+.character-card {
+  border-radius: 8px;
+  background: rgba(15, 27, 53, 0.8);
+  border-color: rgba(126, 184, 247, 0.18);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
+}
+
+.map-card:hover,
+.char-select-header:hover,
+.deploy-char-item:hover,
+.character-card:hover {
+  border-color: rgba(126, 184, 247, 0.76);
+  background: rgba(26, 42, 90, 0.72);
+}
+
+.char-select-item.selected,
+.map-card.selected {
+  border-color: #5f99ff;
+  box-shadow: 0 0 0 1px rgba(95, 153, 255, 0.28), 0 16px 36px rgba(0, 0, 0, 0.22);
+}
+
+.char-select-header {
+  min-height: 96px;
+}
+
+.char-select-portrait {
+  width: 68px;
+  height: 68px;
+  border-radius: 8px;
+}
+
+.char-skill-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #c8d5ff;
+  font-weight: 700;
+}
+
+.char-skill-count {
+  color: #7eb8f7;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.skill-list-collapse-btn {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid rgba(126, 184, 247, 0.26);
+  border-radius: 999px;
+  background: rgba(126, 184, 247, 0.08);
+  color: #c8d5ff;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+
+.skill-list-collapse-btn:hover {
+  background: rgba(126, 184, 247, 0.18);
+  border-color: rgba(126, 184, 247, 0.62);
+}
+
+.setup-skill-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.setup-skill-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 12px;
+  min-height: 116px;
+  padding: 14px 14px 14px 40px;
+  border: 1px solid rgba(126, 184, 247, 0.2);
+  border-radius: 8px;
+  background: rgba(14, 18, 36, 0.86);
+  color: #d0d8f0;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.18s, background 0.18s, transform 0.12s, box-shadow 0.18s;
+}
+
+.setup-skill-card:hover {
+  border-color: rgba(126, 184, 247, 0.72);
+  background: rgba(23, 33, 66, 0.92);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.22);
+}
+
+.setup-skill-card:active {
+  transform: translateY(1px);
+}
+
+.setup-skill-card.checked {
+  border-color: #5f99ff;
+  background: linear-gradient(135deg, rgba(26, 58, 122, 0.86), rgba(25, 34, 68, 0.92));
+  box-shadow: inset 0 0 0 1px rgba(126, 184, 247, 0.18), 0 0 22px rgba(79, 142, 247, 0.16);
+}
+
+.setup-skill-check {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(174, 187, 226, 0.72);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.setup-skill-card.checked .setup-skill-check {
+  background: #5f99ff;
+  border-color: #5f99ff;
+}
+
+.setup-skill-card.checked .setup-skill-check::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border-right: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(45deg);
+}
+
+.setup-skill-icon {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #080b16;
+  border: 1px solid rgba(126, 184, 247, 0.18);
+  color: #7eb8f7;
+  font-weight: 800;
+  overflow: hidden;
+}
+
+.setup-skill-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
+}
+
+.setup-skill-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.setup-skill-name {
+  color: #f5f7ff;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.setup-skill-desc {
+  color: #aebbe2;
+  font-size: 12px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.setup-skill-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.setup-skill-meta span {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(126, 184, 247, 0.1);
+  color: #9ec7ff;
+  font-size: 11px;
+}
+
+.skill-editor-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.skill-editor-list-item {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 12px;
+  padding: 12px;
+  min-height: 92px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, transform 0.12s;
+}
+
+.skill-editor-list-item:hover {
+  background: rgba(31, 48, 96, 0.76);
+  border-color: rgba(126, 184, 247, 0.22);
+}
+
+.skill-editor-list-item.selected {
+  background: rgba(26, 58, 122, 0.86);
+  border-color: #5f99ff;
+}
+
+.skill-editor-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 8px;
+  background: #081125;
+  border: 1px solid rgba(126, 184, 247, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: #7eb8f7;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.skill-editor-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
+  display: block;
+}
+
+.skill-editor-list-info {
+  min-width: 0;
+}
+
+.skill-editor-list-name {
+  color: #f5f7ff;
+  font-size: 14px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-editor-list-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 4px 0;
+}
+
+.skill-editor-list-meta span {
+  color: #9eb2e8;
+  font-size: 11px;
+}
+
+.skill-editor-list-desc {
+  color: #7f8eb8;
+  font-size: 12px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (max-width: 920px) {
+  .editor-body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .editor-sidebar {
+    width: 100%;
+    max-height: 320px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(126, 184, 247, 0.18);
+  }
+  .editor-main {
+    overflow: visible;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =========================================================
+   战斗界面优化：指挥条、视觉反馈、响应式
+   ========================================================= */
+.battle-page {
+  --battle-bg: #0b0a08;
+  --battle-surface: rgba(28, 25, 23, 0.92);
+  --battle-surface-2: rgba(41, 37, 36, 0.9);
+  --battle-line: rgba(168, 162, 158, 0.18);
+  --battle-gold: #d6a93a;
+  --battle-gold-strong: #f5c451;
+  --battle-blue: #55c7f7;
+  --battle-red: #ef5b5b;
+  --battle-violet: #b47cff;
+  --battle-green: #5dd89c;
+  background:
+    radial-gradient(circle at 20% 15%, rgba(214, 169, 58, 0.14), transparent 32%),
+    radial-gradient(circle at 80% 70%, rgba(85, 199, 247, 0.12), transparent 36%),
+    linear-gradient(135deg, #0b0a08 0%, #15110d 48%, #08090d 100%);
+}
+
+.battle-topbar {
+  min-height: 58px;
+  padding: 10px 18px;
+  background: linear-gradient(180deg, rgba(41, 37, 36, 0.96), rgba(12, 10, 9, 0.92));
+  border-bottom: 1px solid var(--battle-line);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+}
+
+.topbar-round {
+  color: #1c1917;
+  background: linear-gradient(135deg, #f7d879, var(--battle-gold));
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 0 18px rgba(214, 169, 58, 0.28);
+}
+
+.topbar-current {
+  color: #e7e5e4;
+}
+
+.topbar-actor-name {
+  color: var(--battle-gold-strong);
+  text-shadow: 0 0 12px rgba(245, 196, 81, 0.28);
+}
+
+.battle-body {
+  gap: 14px;
+  padding: 14px;
+}
+
+.battle-board-area {
+  justify-content: center;
+  padding: 18px 18px 168px;
+  border: 1px solid var(--battle-line);
+  border-radius: 8px;
+  background:
+    linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px),
+    rgba(12, 10, 9, 0.72);
+  background-size: 28px 28px;
+  box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.45);
+}
+
+.grid-board-wrap {
+  max-width: 100%;
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid rgba(214, 169, 58, 0.16);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
+}
+
+.grid-board {
+  gap: 3px;
+  padding: 6px;
+  background: #090806;
+  border-color: rgba(214, 169, 58, 0.22);
+  border-radius: 8px;
+}
+
+.grid-cell {
+  border-radius: 6px;
+  background:
+    linear-gradient(145deg, rgba(68, 64, 60, 0.72), rgba(28, 25, 23, 0.92));
+  border-color: rgba(168, 162, 158, 0.12);
+  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
+}
+
+.cell-valid:hover,
+.cell-hovered {
+  background: linear-gradient(145deg, rgba(85, 199, 247, 0.2), rgba(28, 25, 23, 0.95)) !important;
+  border-color: rgba(85, 199, 247, 0.56);
+  box-shadow: inset 0 0 0 1px rgba(85, 199, 247, 0.18);
+}
+
+.cell-invalid {
+  background: rgba(8, 8, 8, 0.7);
+  border-color: rgba(0, 0, 0, 0.52);
+}
+
+.hl-move {
+  background: rgba(85, 199, 247, 0.2) !important;
+  border-color: rgba(85, 199, 247, 0.72) !important;
+  box-shadow: inset 0 0 16px rgba(85, 199, 247, 0.2);
+}
+.hl-attack {
+  background: rgba(239, 91, 91, 0.22) !important;
+  border-color: rgba(239, 91, 91, 0.78) !important;
+  box-shadow: inset 0 0 16px rgba(239, 91, 91, 0.18);
+}
+.hl-skill {
+  background: rgba(180, 124, 255, 0.2) !important;
+  border-color: rgba(180, 124, 255, 0.76) !important;
+  box-shadow: inset 0 0 16px rgba(180, 124, 255, 0.18);
+}
+
+.battle-panel-area {
+  width: 340px;
+  background: linear-gradient(180deg, rgba(41, 37, 36, 0.95), rgba(12, 10, 9, 0.96));
+  border: 1px solid var(--battle-line);
+  border-radius: 8px;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.28);
+}
+
+.battle-roster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid rgba(168, 162, 158, 0.16);
+}
+
+.roster-avatar {
+  position: relative;
+  aspect-ratio: 1;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(168, 162, 158, 0.18);
+  border-radius: 8px;
+  background: rgba(12, 10, 9, 0.62);
+  color: #f5f5f4;
+  cursor: pointer;
+  transition: border-color 0.18s, box-shadow 0.18s, transform 0.12s, opacity 0.18s;
+}
+
+.roster-avatar:hover {
+  border-color: rgba(214, 169, 58, 0.72);
+  transform: translateY(-1px);
+}
+
+.roster-avatar.selected {
+  border-color: #f5c451;
+  box-shadow: 0 0 0 2px rgba(245, 196, 81, 0.18);
+}
+
+.roster-avatar.current {
+  border-color: #55c7f7;
+}
+
+.roster-avatar.dead {
+  opacity: 0.42;
+  filter: grayscale(1);
+}
+
+.roster-avatar img,
+.roster-avatar span {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  object-fit: cover;
+  font-weight: 900;
+}
+
+.roster-avatar i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: #5dd89c;
+}
+
+.roster-avatar b {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: #55c7f7;
+  color: #071018;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1.3;
+}
+
+.entity-panel {
+  padding: 16px;
+}
+
+.panel-view-title {
+  color: #a8a29e;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.panel-stat.stat-changed {
+  border-color: rgba(245, 196, 81, 0.42);
+  background: rgba(113, 63, 18, 0.28);
+}
+
+.panel-stat.stat-changed span:last-child {
+  color: #f5c451;
+}
+
+.panel-inspect-note {
+  padding: 10px;
+  border: 1px solid rgba(168, 162, 158, 0.16);
+  border-radius: 8px;
+  background: rgba(28, 25, 23, 0.72);
+  color: #a8a29e;
+  font-size: 12px;
+  text-align: center;
+}
+
+.panel-portrait,
+.panel-stat,
+.skill-card,
+.panel-buff-item {
+  background: rgba(28, 25, 23, 0.88);
+  border-color: rgba(168, 162, 158, 0.16);
+}
+
+.panel-name,
+.skill-card-name {
+  color: #f5f5f4;
+}
+
+.panel-section-label {
+  color: #a8a29e;
+}
+
+.skill-card:hover {
+  border-color: rgba(214, 169, 58, 0.76);
+  background: rgba(68, 64, 60, 0.72);
+}
+
+.skill-card.selected {
+  border-color: var(--battle-gold-strong);
+  background: rgba(113, 63, 18, 0.48);
+  box-shadow: 0 0 0 1px rgba(245, 196, 81, 0.16);
+}
+
+.battle-command-dock {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 18px;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: minmax(170px, 0.9fr) auto minmax(240px, 1.25fr);
+  gap: 12px;
+  align-items: stretch;
+  padding: 12px;
+  background: rgba(12, 10, 9, 0.9);
+  border: 1px solid rgba(214, 169, 58, 0.24);
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(14px);
+}
+
+.command-context {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 4px 8px;
+}
+
+.command-label {
+  color: #a8a29e;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.command-context strong {
+  color: #f5f5f4;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-primary {
+  display: grid;
+  grid-template-columns: repeat(4, 74px);
+  gap: 8px;
+}
+
+.command-btn,
+.quick-skill-btn {
+  border: 1px solid rgba(168, 162, 158, 0.18);
+  background: rgba(41, 37, 36, 0.92);
+  color: #e7e5e4;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s, transform 0.12s;
+}
+
+.command-btn {
+  min-height: 54px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.command-btn:hover,
+.quick-skill-btn:hover {
+  border-color: rgba(214, 169, 58, 0.72);
+  background: rgba(68, 64, 60, 0.95);
+}
+
+.command-btn:active,
+.quick-skill-btn:active {
+  transform: translateY(1px);
+}
+
+.command-btn.active {
+  color: #0c0a09;
+  border-color: transparent;
+}
+
+.command-btn.active.move { background: linear-gradient(135deg, #9ee5ff, var(--battle-blue)); }
+.command-btn.active.attack { background: linear-gradient(135deg, #ff9a9a, var(--battle-red)); }
+.command-btn.danger { border-color: rgba(239, 91, 91, 0.42); color: #fecaca; }
+
+.command-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  position: relative;
+}
+
+.command-icon::before,
+.command-icon::after {
+  content: "";
+  position: absolute;
+}
+
+.command-icon-move::before {
+  inset: 2px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-left-color: transparent;
+  transform: rotate(-45deg);
+}
+.command-icon-attack::before {
+  width: 18px;
+  height: 2px;
+  top: 9px;
+  left: 1px;
+  background: currentColor;
+  transform: rotate(-35deg);
+}
+.command-icon-attack::after {
+  width: 7px;
+  height: 7px;
+  top: 3px;
+  right: 0;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  transform: rotate(10deg);
+}
+.command-icon-treasure::before {
+  inset: 5px 2px 2px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+}
+.command-icon-treasure::after {
+  left: 4px;
+  right: 4px;
+  top: 3px;
+  height: 6px;
+  border: 2px solid currentColor;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+}
+.command-icon-end::before {
+  width: 16px;
+  height: 9px;
+  left: 2px;
+  top: 4px;
+  border-left: 3px solid currentColor;
+  border-bottom: 3px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.command-skills {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(112px, 1fr);
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.quick-skill-btn {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 22px 1fr 24px;
+  gap: 7px;
+  align-items: center;
+  padding: 8px;
+  text-align: left;
+}
+
+.quick-skill-btn.selected {
+  border-color: var(--battle-violet);
+  background: rgba(76, 29, 149, 0.54);
+  box-shadow: 0 0 16px rgba(180, 124, 255, 0.18);
+}
+
+.quick-skill-btn.used {
+  opacity: 0.58;
+}
+
+.quick-skill-index,
+.quick-skill-cost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: #d6a93a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.quick-skill-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quick-skill-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #f5f5f4;
+  font-weight: 700;
+}
+
+.quick-skill-desc {
+  min-width: 0;
+  color: #a8a29e;
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-interaction-hint {
+  top: 16px;
+  bottom: auto;
+  background: rgba(12, 10, 9, 0.86);
+  border-color: rgba(214, 169, 58, 0.46);
+  color: #f5f5f4;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+}
+
+.direction-overlay {
+  background: rgba(12, 10, 9, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.direction-prompt {
+  color: #f5f5f4;
+}
+
+.direction-buttons {
+  grid-template-columns: repeat(3, 76px);
+  grid-template-areas:
+    ". up ."
+    "left down right";
+}
+.direction-btn {
+  width: 76px;
+  height: 58px;
+  border-radius: 8px;
+  border-color: rgba(214, 169, 58, 0.34);
+}
+.direction-btn:nth-child(1) { grid-area: up; }
+.direction-btn:nth-child(2) { grid-area: down; }
+.direction-btn:nth-child(3) { grid-area: left; }
+.direction-btn:nth-child(4) { grid-area: right; }
+
+.token-body {
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,0.08), 0 8px 16px rgba(0,0,0,0.28);
+}
+
+.token-placeholder {
+  background: linear-gradient(135deg, rgba(68, 64, 60, 0.95), rgba(28, 25, 23, 0.95)) !important;
+  color: #f5f5f4;
+}
+
+.token-treasure-icon {
+  width: 82%;
+  height: 82%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle, #f7d879, #b7791f);
+  color: #1c1917;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.token-effect-burst {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  z-index: 6;
+  transform: translateX(-50%);
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+  animation: token-float-pop 0.72s ease forwards;
+  pointer-events: none;
+}
+
+.token-effect-burst.hit {
+  background: rgba(239, 91, 91, 0.92);
+  color: white;
+}
+.token-effect-burst.critical {
+  background: linear-gradient(135deg, #fff1a8, #ef4444);
+  color: #1c1917;
+  box-shadow: 0 0 18px rgba(245, 196, 81, 0.48);
+}
+.token-effect-burst.heal {
+  background: rgba(93, 216, 156, 0.92);
+  color: #052e1b;
+}
+
+.token-cast-ring {
+  position: absolute;
+  inset: -9px;
+  border: 2px solid rgba(180, 124, 255, 0.8);
+  border-radius: 50%;
+  animation: token-cast-ring 0.7s ease forwards;
+  pointer-events: none;
+}
+
+.token-effect-hit { animation: token-hit-shake 0.42s ease; }
+.token-effect-critical { animation: token-critical-hit 0.56s ease; }
+.token-effect-heal { animation: token-heal-glow 0.68s ease; }
+.token-effect-die { animation: token-die-fade 0.68s ease forwards; }
+.token-effect-move { animation: token-step-pop 0.42s ease; }
+
+@keyframes token-hit-shake {
+  0%, 100% { transform: translateX(0); filter: none; }
+  25% { transform: translateX(-5px); filter: brightness(1.8) saturate(1.4); }
+  55% { transform: translateX(5px); }
+}
+
+@keyframes token-critical-hit {
+  0% { transform: scale(1); filter: none; }
+  35% { transform: scale(1.16) rotate(-4deg); filter: brightness(2) saturate(1.8); }
+  70% { transform: scale(0.92) rotate(3deg); }
+  100% { transform: scale(1); filter: none; }
+}
+
+@keyframes token-heal-glow {
+  0%, 100% { filter: none; }
+  50% { filter: drop-shadow(0 0 14px rgba(93, 216, 156, 0.82)) brightness(1.25); }
+}
+
+@keyframes token-die-fade {
+  0% { transform: scale(1); opacity: 1; filter: none; }
+  100% { transform: scale(0.72); opacity: 0.32; filter: grayscale(1); }
+}
+
+@keyframes token-step-pop {
+  0% { transform: scale(0.88); }
+  70% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+@keyframes token-cast-ring {
+  0% { transform: scale(0.75); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+@keyframes token-float-pop {
+  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.86); }
+  18% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -20px) scale(0.98); }
+}
+
+@media (max-width: 1100px) {
+  .battle-body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .battle-board-area {
+    min-height: 620px;
+  }
+  .battle-panel-area {
+    width: 100%;
+    max-height: 420px;
+  }
+  .battle-command-dock {
+    grid-template-columns: 1fr;
+  }
+  .command-primary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .battle-body {
+    padding: 8px;
+  }
+  .battle-topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .topbar-current {
+    order: 3;
+    width: 100%;
+  }
+  .battle-board-area {
+    min-height: 560px;
+    padding: 10px 10px 220px;
+  }
+  .battle-command-dock {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    padding: 10px;
+  }
+  .command-primary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .command-context strong {
+    white-space: normal;
+  }
+  .board-interaction-hint {
+    max-width: calc(100% - 20px);
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entity-token,
+  .token-effect-hit,
+  .token-effect-critical,
+  .token-effect-heal,
+  .token-effect-die,
+  .token-effect-move,
+  .token-effect-burst,
+  .token-cast-ring {
+    animation: none !important;
+    transition: none !important;
+  }
+}

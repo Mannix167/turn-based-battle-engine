@@ -4,6 +4,7 @@ import type { MapRead } from '../types/map'
 import EntityToken from './EntityToken'
 
 type InteractionMode = 'idle' | 'moving' | 'attacking' | 'skill-target' | 'skill-direction'
+type TokenVisualEffect = { type: 'hit' | 'critical' | 'heal' | 'die' | 'cast' | 'move'; amount?: number }
 
 interface Props {
   gameState: GameStateRead
@@ -12,6 +13,7 @@ interface Props {
   selectedEntityId: string | null
   highlightMode: 'move' | 'attack' | 'skill' | null
   highlightCells: Set<string>
+  tokenEffects?: Record<string, TokenVisualEffect>
   tokenImageUrls: Record<string, string | null>   // entityId → tokenImageUrl
   onCellClick: (x: number, y: number) => void
   onEntityClick: (entityId: string) => void
@@ -24,6 +26,7 @@ export default function GridBoard({
   selectedEntityId,
   highlightMode,
   highlightCells,
+  tokenEffects = {},
   tokenImageUrls,
   onCellClick,
   onEntityClick,
@@ -83,6 +86,7 @@ export default function GridBoard({
             const entity = cellEntityMap.get(key)
             const isCurrent = entity && 'isAlive' in entity && entity.id === gameState.currentEntityId
             const isSelected = entity && 'isAlive' in entity && entity.id === selectedEntityId
+            const visualEffect = entity && 'isAlive' in entity ? tokenEffects[entity.id] : undefined
 
             const hlClass = isHighlighted && highlightMode ? highlightColorClass[highlightMode] : ''
 
@@ -111,6 +115,7 @@ export default function GridBoard({
                     entity={entity}
                     isCurrentActor={!!isCurrent}
                     isSelected={!!isSelected}
+                    visualEffect={visualEffect}
                     tokenImageUrl={
                       'isAlive' in entity ? tokenImageUrls[entity.id] : null
                     }

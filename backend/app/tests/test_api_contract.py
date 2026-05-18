@@ -114,10 +114,15 @@ def test_custom_skill_template_supports_icon_and_usage_filters() -> None:
         "range": 1,
         "targetType": "single",
         "areaType": "single",
+        "areaSize": 1,
+        "affectSelfDamage": False,
         "canTargetSelf": False,
         "canTargetAlly": False,
         "canTargetEnemy": True,
         "canTargetEmptyCell": False,
+        "canTargetMonster": True,
+        "canTargetSummon": True,
+        "canTargetTreasure": False,
         "effects": [{"type": "damage", "value": 7, "metadata": {}}],
     }
 
@@ -127,11 +132,69 @@ def test_custom_skill_template_supports_icon_and_usage_filters() -> None:
     assert skill["iconUrl"] == "✨"
     assert skill["skillKind"] == "configurable"
     assert skill["usableAs"] == ["character"]
+    assert skill["areaSize"] == 1
+    assert skill["canTargetMonster"] is True
 
     character_templates = client.get("/api/skills/templates/character").json()
     common_templates = client.get("/api/skills/templates/common").json()
     assert any(skill["id"] == skill_id for skill in character_templates)
     assert not any(skill["id"] == skill_id for skill in common_templates)
+
+
+def test_skill_templates_can_include_disabled_and_extended_fields() -> None:
+    skill_id = f"skill_disabled_{uuid4().hex[:8]}"
+    payload = {
+        "id": skill_id,
+        "name": "Disabled Square Buff",
+        "description": "Contract test disabled skill with extended fields.",
+        "iconUrl": "⬛",
+        "skillKind": "configurable",
+        "enabled": False,
+        "usableAs": ["common"],
+        "category": "common",
+        "cost": 2,
+        "range": 4,
+        "targetType": "single",
+        "areaType": "circle",
+        "areaSize": 2,
+        "affectSelfDamage": True,
+        "canTargetSelf": True,
+        "canTargetAlly": True,
+        "canTargetEnemy": False,
+        "canTargetEmptyCell": False,
+        "canTargetMonster": False,
+        "canTargetSummon": False,
+        "canTargetTreasure": True,
+        "effects": [
+            {
+                "type": "add_buff",
+                "value": 3,
+                "duration": 2,
+                "delayTurns": 1,
+                "buffType": "shield",
+                "metadata": {},
+            }
+        ],
+    }
+
+    created = client.post("/api/skills/templates", json=payload)
+    assert created.status_code == 201
+    skill = created.json()
+    assert skill["enabled"] is False
+    assert skill["areaType"] == "circle"
+    assert skill["areaSize"] == 2
+    assert skill["affectSelfDamage"] is True
+    assert skill["canTargetTreasure"] is True
+    assert skill["effects"][0]["duration"] == 2
+    assert skill["effects"][0]["delayTurns"] == 1
+    assert skill["effects"][0]["buffType"] == "shield"
+
+    enabled_only = client.get("/api/skills/templates").json()
+    with_disabled_query = client.get("/api/skills/templates?include_disabled=true").json()
+    with_disabled_path = client.get("/api/skills/templates/all").json()
+    assert not any(skill["id"] == skill_id for skill in enabled_only)
+    assert any(skill["id"] == skill_id for skill in with_disabled_query)
+    assert any(skill["id"] == skill_id for skill in with_disabled_path)
 
 
 def test_character_skill_validation_requires_character_usable_skill() -> None:
@@ -196,6 +259,10 @@ def test_custom_map_can_validate_and_start_game_with_fixed_entities() -> None:
     assert validation.status_code == 200
     assert validation.json()["isValid"] is True
 
+    draft_validation = client.post("/api/maps/validate", json={**map_payload, "id": "draft_map"})
+    assert draft_validation.status_code == 200
+    assert draft_validation.json()["isValid"] is True
+
     started = client.post(
         "/api/game/start",
         json={
@@ -212,3 +279,68 @@ def test_custom_map_can_validate_and_start_game_with_fixed_entities() -> None:
     state = started.json()
     assert any(entity["id"] == monster_id for entity in state["entities"])
     assert any(treasure["id"] == treasure_id for treasure in state["treasures"])
+
+
+def test_map_allows_treasure_overlap_but_rejects_monster_deployment_overlap() -> None:
+    map_id = f"map_contract_{uuid4().hex[:8]}"
+    map_payload = {
+        "id": map_id,
+        "name": "Contract Fixed Map",
+        "description": "Treasure can overlap, monster blocks deployment.",
+        "width": 2,
+        "height": 1,
+        "cells": [
+            {"x": 0, "y": 0, "enabled": True, "terrainType": "normal", "tileImageUrl": None},
+            {"x": 1, "y": 0, "enabled": True, "terrainType": "normal", "tileImageUrl": None},
+        ],
+        "spawnZones": [],
+        "fixedEntities": [
+            {"id": f"treasure_contract_{uuid4().hex[:8]}", "type": "treasure", "templateId": "Gold", "x": 0, "y": 0},
+            {"id": f"monster_contract_{uuid4().hex[:8]}", "type": "monster", "templateId": "Slime", "x": 1, "y": 0},
+        ],
+        "randomRules": [],
+        "backgroundImageUrl": None,
+    }
+
+    created = client.post("/api/maps", json=map_payload)
+    assert created.status_code == 201
+
+    treasure_overlap_start = client.post(
+        "/api/game/start",
+        json={
+            "mapId": map_id,
+            "entityIds": ["char_knight"],
+            "positions": {
+                "char_knight": {"x": 0, "y": 0},
+            },
+            "selectedSkillTemplateIds": {},
+        },
+    )
+    assert treasure_overlap_start.status_code == 201
+
+    monster_overlap_start = client.post(
+        "/api/game/start",
+        json={
+            "mapId": map_id,
+            "entityIds": ["char_knight"],
+            "positions": {
+                "char_knight": {"x": 1, "y": 0},
+            },
+            "selectedSkillTemplateIds": {},
+        },
+    )
+    assert monster_overlap_start.status_code == 400
+
+    monster_overlap_validation = client.post(
+        "/api/maps/validate",
+        json={
+            **map_payload,
+            "id": "draft_map",
+            "fixedEntities": [
+                {"id": "monster_a", "type": "monster", "templateId": "Slime", "x": 1, "y": 0},
+                {"id": "monster_b", "type": "monster", "templateId": "Slime", "x": 1, "y": 0},
+            ],
+        },
+    )
+    assert monster_overlap_validation.status_code == 200
+    assert monster_overlap_validation.json()["isValid"] is False

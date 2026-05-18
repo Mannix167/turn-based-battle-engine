@@ -26,6 +26,17 @@ def test_consumes_temporary_ap_before_permanent_ap() -> None:
     assert entity.permanentAP == 1
 
 
+def test_five_cost_can_spend_four_temporary_and_one_permanent_ap() -> None:
+    entity = demo_entity("a", "A", 0, 0, 1)
+    entity.temporaryAP = 4
+    entity.permanentAP = 1
+
+    consume_ap(entity, 5)
+
+    assert entity.temporaryAP == 0
+    assert entity.permanentAP == 0
+
+
 def test_cannot_overspend_ap() -> None:
     entity = demo_entity("a", "A", 0, 0, 1)
 

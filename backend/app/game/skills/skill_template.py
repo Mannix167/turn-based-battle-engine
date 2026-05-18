@@ -10,6 +10,17 @@ EffectType = Literal[
     "modify_stat",
     "add_permanent_ap",
     "add_temporary_ap",
+    "grant_permanent_ap",
+    "grant_temporary_ap",
+    "grant_random_common_skill",
+    "set_stat_temporarily",
+    "delayed_area_damage",
+    "link_damage_sync",
+    "create_alliance",
+    "swap_current_hp",
+    "conditional_execute",
+    "instant_kill",
+    "random_damage",
     "extra_turn_next_round",
     "alliance",
     "remove_alliance",
@@ -25,6 +36,10 @@ EffectType = Literal[
 class EffectConfig:
     type: EffectType
     value: int | None = None
+    duration: int | None = None
+    delayTurns: int | None = None
+    stat: str | None = None
+    buffType: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -36,14 +51,19 @@ class SkillTemplate:
     category: Literal["character", "common"]
     cost: int
     range: int
-    targetType: Literal["single", "emptyCell", "direction", "self"]
-    areaType: Literal["single", "line", "cross", "square", "none"]
+    targetType: Literal["single", "emptyCell", "direction", "self", "twoEntities"]
+    areaType: Literal["single", "line", "cross", "square", "circle", "none"]
+    areaSize: int = 1
     iconUrl: str | None = None
     skillKind: Literal["built_in", "configurable"] = "built_in"
     enabled: bool = True
     usableAs: list[str] = field(default_factory=lambda: ["common", "reward"])
+    affectSelfDamage: bool = False
     canTargetSelf: bool = False
     canTargetAlly: bool = False
     canTargetEnemy: bool = True
     canTargetEmptyCell: bool = False
+    canTargetMonster: bool = True
+    canTargetSummon: bool = True
+    canTargetTreasure: bool = False
     effects: list[EffectConfig] = field(default_factory=list)

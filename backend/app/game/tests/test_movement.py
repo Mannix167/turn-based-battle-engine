@@ -39,7 +39,7 @@ def test_cannot_move_to_invalid_cell() -> None:
         move_entity(state, "a", Position(0, 1))
 
 
-def test_cannot_move_to_occupied_entity_or_treasure() -> None:
+def test_cannot_move_to_occupied_entity_but_can_share_treasure_cell() -> None:
     state = make_state()
     begin_action(state.entities["a"])
     with pytest.raises(MapRuleError):
@@ -47,5 +47,5 @@ def test_cannot_move_to_occupied_entity_or_treasure() -> None:
 
     state.entities.pop("b")
     state.treasures["t"] = TreasureEntity(id="t", name="Treasure", x=1, y=0)
-    with pytest.raises(MapRuleError):
-        move_entity(state, "a", Position(1, 0))
+    move_entity(state, "a", Position(1, 0))
+    assert state.entities["a"].position == Position(1, 0)

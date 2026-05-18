@@ -8,12 +8,14 @@ from app.api.routes_skills import router as skills_router
 from app.api.routes_uploads import router as uploads_router
 from app.config import UPLOAD_DIR, ensure_local_dirs
 from app.db.database import Base, engine
+from app.db.migrations import migrate_database
 from app.db.seed import seed_database
 
 
 def create_app() -> FastAPI:
     ensure_local_dirs()
     Base.metadata.create_all(bind=engine)
+    migrate_database(engine)
     seed_database()
 
     app = FastAPI(title="Turn-Based Grid Game v2")
