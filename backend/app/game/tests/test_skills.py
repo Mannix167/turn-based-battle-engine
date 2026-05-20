@@ -106,6 +106,17 @@ def test_line_skill_hits_non_allied_targets_in_direction() -> None:
     assert ally.currentHp == 100
     assert enemy_two.currentHp == 90
     assert [(event.targetEntityId, event.amount) for event in state.recentDamageEvents] == [("b", 10), ("d", 10)]
+    assert any(
+        event.type == "skill_cast"
+        and event.visualKey == "laser-line"
+        and [pos.x for pos in event.targetPositions] == [1, 2, 3, 4]
+        for event in state.recentEvents
+    )
+    assert [
+        (event.type, event.targetIds, event.value)
+        for event in state.recentEvents
+        if event.type == "skill_damage"
+    ] == [("skill_damage", ["b"], 10), ("skill_damage", ["d"], 10)]
 
 
 def test_damage_sync_link_mirrors_later_damage() -> None:

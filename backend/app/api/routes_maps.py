@@ -9,6 +9,7 @@ from app.db.database import get_db
 from app.db.models import MapRecord
 from app.game.fixtures import MAPS
 from app.game.models import GameMap, Position
+from app.game.terrain import TERRAIN_DEFINITIONS
 from app.schemas.map import MapCreate, MapRead, MapValidationResult
 
 
@@ -22,7 +23,14 @@ def now_iso() -> str:
 def builtin_map_to_schema(game_map: GameMap) -> MapRead:
     valid_cells = sorted(game_map.validCells, key=lambda pos: (pos.y, pos.x))
     cells = [
-        {"x": x, "y": y, "enabled": not game_map.validCells or Position(x, y) in game_map.validCells}
+        {
+            "x": x,
+            "y": y,
+            "enabled": not game_map.validCells or Position(x, y) in game_map.validCells,
+            "terrainType": game_map.cells.get(Position(x, y)).terrainType if Position(x, y) in game_map.cells else "normal",
+            "tileImageUrl": game_map.cells.get(Position(x, y)).tileImageUrl if Position(x, y) in game_map.cells else None,
+            "terrainState": None,
+        }
         for y in range(game_map.height)
         for x in range(game_map.width)
     ]
@@ -45,6 +53,10 @@ def builtin_map_to_schema(game_map: GameMap) -> MapRead:
 
 def record_to_schema(record: MapRecord) -> MapRead:
     cells = json.loads(record.cells_json or "[]")
+    for cell in cells:
+        cell.setdefault("terrainType", "normal")
+        cell.setdefault("tileImageUrl", None)
+        cell["terrainState"] = cell.get("terrainState")
     valid_cells = [{"x": cell["x"], "y": cell["y"]} for cell in cells if cell.get("enabled", True)]
     return MapRead(
         id=record.id,
@@ -65,7 +77,7 @@ def record_to_schema(record: MapRecord) -> MapRead:
 
 def payload_to_record(record: MapRecord, payload: MapCreate) -> None:
     stamp = now_iso()
-    cells = [cell.model_dump() for cell in payload.cells]
+    cells = [cell.model_dump(exclude={"terrainState"}) for cell in payload.cells]
     if not cells:
         valid = {(cell.x, cell.y) for cell in payload.validCells}
         cells = [
@@ -97,8 +109,12 @@ def validate_map_payload(payload: MapCreate) -> MapValidationResult:
             for cell in payload.validCells
         ]
     enabled = {(cell.x, cell.y) for cell in cells if cell.enabled}
+    cell_by_pos = {(cell.x, cell.y): cell for cell in cells}
     if not enabled:
         errors.append("At least one enabled cell is required")
+    for cell in cells:
+        if cell.terrainType not in TERRAIN_DEFINITIONS:
+            errors.append(f"Invalid terrainType at ({cell.x}, {cell.y}): {cell.terrainType}")
     for x, y in enabled:
         if x < 0 or y < 0 or x >= payload.width or y >= payload.height:
             errors.append(f"Enabled cell out of bounds: ({x}, {y})")
@@ -108,6 +124,9 @@ def validate_map_payload(payload: MapCreate) -> MapValidationResult:
         pos = (entity.x, entity.y)
         if pos not in enabled:
             errors.append(f"Fixed {entity.type} must be on enabled cell: ({entity.x}, {entity.y})")
+        terrain = cell_by_pos.get(pos).terrainType if cell_by_pos.get(pos) else "normal"
+        if terrain in {"obstacle", "wood_stake"}:
+            errors.append(f"Fixed {entity.type} cannot be on {terrain}: ({entity.x}, {entity.y})")
         if entity.type == "monster":
             if pos in blocking_occupied:
                 errors.append(f"Blocking fixed entities overlap at ({entity.x}, {entity.y})")
@@ -120,10 +139,20 @@ def validate_map_payload(payload: MapCreate) -> MapValidationResult:
         for cell in zone.cells:
             if (cell.x, cell.y) not in enabled:
                 errors.append(f"Spawn zone cell must be enabled: ({cell.x}, {cell.y})")
+            terrain = cell_by_pos.get((cell.x, cell.y)).terrainType if cell_by_pos.get((cell.x, cell.y)) else "normal"
+            if terrain in {"obstacle", "wood_stake"}:
+                errors.append(f"Spawn zone cell cannot be on {terrain}: ({cell.x}, {cell.y})")
     for rule in payload.randomRules:
         allowed = {(cell.x, cell.y) for cell in rule.allowedCells} if rule.allowedCells else enabled
         excluded = {(cell.x, cell.y) for cell in rule.excludedCells}
-        available = [cell for cell in allowed if cell in enabled and cell not in excluded and cell not in blocking_occupied]
+        available = [
+            cell
+            for cell in allowed
+            if cell in enabled
+            and cell not in excluded
+            and cell not in blocking_occupied
+            and (cell_by_pos.get(cell).terrainType if cell_by_pos.get(cell) else "normal") not in {"obstacle", "wood_stake"}
+        ]
         if rule.count > len(available):
             errors.append(f"Random rule {rule.id} count exceeds available cells")
     if payload.spawnZones:

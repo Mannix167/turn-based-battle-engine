@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 EntityType = Literal["character", "summon", "monster"]
 Direction = Literal["up", "down", "left", "right"]
+TerrainType = Literal["normal", "obstacle", "lava", "swamp", "wood_stake", "ice", "thunderstorm"]
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,51 @@ class DamageEvent:
 
 
 @dataclass
+class TerrainState:
+    originalTerrainType: TerrainType | None = None
+    duration: int | Literal["permanent"] | None = None
+    createdBySkillId: str | None = None
+    createdByEntityId: str | None = None
+    hp: int | None = None
+    maxHp: int | None = None
+    defense: int | None = None
+
+
+@dataclass
+class MapCell:
+    x: int
+    y: int
+    enabled: bool = True
+    terrainType: TerrainType = "normal"
+    tileImageUrl: str | None = None
+    terrainState: TerrainState | None = None
+
+    @property
+    def position(self) -> Position:
+        return Position(self.x, self.y)
+
+
+@dataclass
+class BattleEvent:
+    id: str
+    type: str
+    timestamp: float
+    actorId: str | None = None
+    targetIds: list[str] = field(default_factory=list)
+    sourcePosition: Position | None = None
+    targetPosition: Position | None = None
+    targetPositions: list[Position] = field(default_factory=list)
+    skillTemplateId: str | None = None
+    terrainType: TerrainType | None = None
+    oldTerrainType: TerrainType | None = None
+    newTerrainType: TerrainType | None = None
+    value: int | None = None
+    visualKey: str | None = None
+    soundKey: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class BattleEntity:
     id: str
     type: EntityType
@@ -75,6 +121,9 @@ class BattleEntity:
     critRate: int
     luck: int
     joinOrder: int
+    templateId: str | None = None
+    tokenImageUrl: str | None = None
+    portraitImageUrl: str | None = None
     ownerId: str | None = None
     controllerId: str | None = None
     permanentAP: int = 3
@@ -110,6 +159,7 @@ class GameMap:
     width: int
     height: int
     validCells: set[Position] = field(default_factory=set)
+    cells: dict[Position, MapCell] = field(default_factory=dict)
 
 
 @dataclass
@@ -123,8 +173,11 @@ class GameState:
     currentEntityId: str | None = None
     alliances: list[AllianceLink] = field(default_factory=list)
     pendingRewards: dict[str, PendingReward] = field(default_factory=dict)
+    rewardSkillPoolTemplateIds: list[str] = field(default_factory=list)
+    startSeed: str | None = None
     recentDamagedEntityIds: list[str] = field(default_factory=list)
     recentDamageEvents: list[DamageEvent] = field(default_factory=list)
+    recentEvents: list[BattleEvent] = field(default_factory=list)
     isFinished: bool = False
     winnerGroup: list[str] = field(default_factory=list)
     log: list[str] = field(default_factory=list)

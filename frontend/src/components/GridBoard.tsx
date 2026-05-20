@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import type { GameStateRead, BattleEntity, TreasureEntity } from '../types/game'
-import type { MapRead } from '../types/map'
+import type { MapRead, MapCell, TerrainType, TerrainState } from '../types/map'
+import { TERRAIN_DEFINITIONS, getTerrainTooltip, getMoveCostHint } from '../data/terrain'
 import EntityToken from './EntityToken'
 
 type InteractionMode = 'idle' | 'moving' | 'attacking' | 'skill-target' | 'skill-direction'
@@ -41,6 +42,12 @@ export default function GridBoard({
   gameState.treasures.forEach((t) => {
     cellEntityMap.set(`${t.x},${t.y}`, t)
   })
+
+  // 优先使用 GameState.map.cells 的地形信息（局内地形会变化）
+  const gameCellMap = new Map<string, MapCell>()
+  if (gameState.map?.cells) {
+    gameState.map.cells.forEach((c) => gameCellMap.set(`${c.x},${c.y}`, c))
+  }
 
   const validSet = new Set(
     mapData.validCells.length > 0
@@ -88,6 +95,15 @@ export default function GridBoard({
             const isSelected = entity && 'isAlive' in entity && entity.id === selectedEntityId
             const visualEffect = entity && 'isAlive' in entity ? tokenEffects[entity.id] : undefined
 
+            // 地形信息：优先 GameState > MapTemplate
+            const gameCell = gameCellMap.get(key)
+            const mapCell = mapData.cells?.find((c) => c.x === x && c.y === y)
+            const terrainType: TerrainType = gameCell?.terrainType ?? mapCell?.terrainType ?? 'normal'
+            const terrainState: TerrainState | null | undefined = gameCell?.terrainState ?? mapCell?.terrainState
+            const terrainDef = TERRAIN_DEFINITIONS[terrainType]
+            const moveHint = getMoveCostHint(terrainType)
+            const tooltipText = getTerrainTooltip(terrainType, terrainState)
+
             const hlClass = isHighlighted && highlightMode ? highlightColorClass[highlightMode] : ''
 
             return (
@@ -96,19 +112,39 @@ export default function GridBoard({
                 className={[
                   'grid-cell',
                   !isValid ? 'cell-invalid' : 'cell-valid',
+                  terrainType !== 'normal' ? `cell-terrain-${terrainType}` : '',
+                  terrainDef?.dangerous ? 'cell-terrain-danger' : '',
                   isHighlighted ? hlClass : '',
                   isHovered && isValid ? 'cell-hovered' : '',
                   interactionMode !== 'idle' && isValid && !entity ? 'cell-interactive' : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
-                style={{ width: cellSize, height: cellSize }}
+                style={{
+                  width: cellSize,
+                  height: cellSize,
+                  backgroundImage: isValid && terrainType !== 'normal' ? `url(${terrainDef?.imageUrl})` : undefined,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                }}
                 onClick={() => isValid && handleCellClick(x, y, key)}
                 onMouseEnter={() => setHoveredCell(key)}
                 onMouseLeave={() => setHoveredCell(null)}
+                title={`(${x},${y}) ${tooltipText}`}
               >
                 {/* 坐标标签（小字） */}
                 <span className="cell-coord">{x},{y}</span>
+
+                {/* 地形特效提示 */}
+                {terrainDef?.dangerous && !entity && (
+                  <span className="cell-danger-indicator">⚠️</span>
+                )}
+                {moveHint && !entity && (
+                  <span className="cell-move-hint">{moveHint}</span>
+                )}
+                {terrainType === 'wood_stake' && terrainState?.hp != null && (
+                  <span className="cell-wood-hp">HP {terrainState.hp}/{terrainState.maxHp ?? 10}</span>
+                )}
 
                 {entity && (
                   <EntityToken

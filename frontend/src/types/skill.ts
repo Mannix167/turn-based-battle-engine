@@ -26,6 +26,7 @@ export type EffectType =
   | 'summon'
   | 'delayed_damage'
   | 'grant_skill'
+  | 'change_terrain'
 
 /* ── EffectConfig ── 对齐 backend EffectConfig ── */
 export interface EffectConfig {
@@ -36,6 +37,13 @@ export interface EffectConfig {
   stat?: string | null
   buffType?: string | null
   metadata?: Record<string, unknown>
+}
+
+export interface SkillVisualConfig {
+  visualKey?: string | null
+  impactColor?: string | null
+  trailType?: string | null
+  soundKey?: string | null
 }
 
 /* ── SkillTemplateRead ── 对齐 backend SkillTemplateRead ── */
@@ -61,6 +69,8 @@ export interface SkillTemplateRead {
   canTargetMonster: boolean
   canTargetSummon: boolean
   canTargetTreasure: boolean
+  canTargetTerrain: boolean
+  visual: SkillVisualConfig
   effects: EffectConfig[]
 }
 
@@ -87,6 +97,8 @@ export interface SkillTemplateWrite {
   canTargetMonster: boolean
   canTargetSummon: boolean
   canTargetTreasure: boolean
+  canTargetTerrain: boolean
+  visual: SkillVisualConfig
   effects: EffectConfig[]
 }
 
@@ -118,6 +130,7 @@ export const EFFECT_TYPE_LABELS: Record<EffectType, string> = {
   summon: '召唤单位',
   delayed_damage: '延迟伤害',
   grant_skill: '赋予技能',
+  change_terrain: '改变地形',
 }
 
 export const TARGET_TYPE_LABELS: Record<SkillTemplateRead['targetType'], string> = {

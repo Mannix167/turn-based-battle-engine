@@ -1,17 +1,19 @@
 from collections.abc import Callable
 from math import ceil
 from random import randint
+from time import time
 from uuid import uuid4
 
 from app.game.action_points import consume_ap
 from app.game.alliance import add_alliance, remove_alliance
 from app.game.damage import apply_damage_to_state, apply_fixed_damage_to_state
 from app.game.distance import manhattan
-from app.game.map_system import assert_empty_valid_cell
-from app.game.models import BattleEntity, Direction, GameState, Position, StatusEffect
+from app.game.map_system import assert_empty_valid_cell, is_occupied, is_valid_cell, occupied_treasure_at
+from app.game.models import BattleEntity, BattleEvent, Direction, GameState, Position, StatusEffect
 from app.game.reward import grant_skill
 from app.game.skills.skill_template import EffectConfig, SkillTemplate
 from app.game.skills.targeting import resolve_targets
+from app.game.terrain import TERRAIN_DEFINITIONS, blocks_line_of_effect, change_terrain
 
 
 class EffectEngineError(ValueError):
@@ -48,6 +50,7 @@ class EffectEngine:
             "random_damage": self._random_damage,
             "summon": self._summon,
             "grant_skill": self._grant_skill,
+            "change_terrain": self._change_terrain,
         }
         self.template: SkillTemplate | None = None
         self.target_position: Position | None = None
@@ -66,8 +69,10 @@ class EffectEngine:
         self.target_position = target_position
         state.recentDamagedEntityIds = []
         state.recentDamageEvents = []
+        state.recentEvents = []
         targets = resolve_targets(state, caster, template, target_id, second_target_id, target_position, direction)
         targets = expand_area_targets(state, caster, template, targets, target_position)
+        append_skill_cast_event(state, caster, template, targets, target_position, direction)
         for effect in template.effects:
             handler = self.handlers.get(effect.type)
             if not handler:
@@ -110,6 +115,7 @@ class EffectEngine:
                     allow_self=bool(effect.metadata.get("affectSelfDamage")),
                 )
                 state.log.append(f"{caster.name}'s effect damaged {target.name} for {amount}")
+                append_skill_damage_event(state, caster, target, self.template, amount, is_crit=False)
             else:
                 if effect.metadata.get("damageType") in {"true", "percent_max_hp"}:
                     amount = apply_fixed_damage_to_state(
@@ -120,9 +126,11 @@ class EffectEngine:
                         allow_self=bool(effect.metadata.get("affectSelfDamage")),
                     )
                     state.log.append(f"{caster.name}'s effect damaged {target.name} for {amount}")
+                    append_skill_damage_event(state, caster, target, self.template, amount, is_crit=False)
                     continue
                 result = apply_damage_to_state(state, caster, target, base_damage=amount_value)
                 state.log.append(f"{caster.name}'s effect damaged {target.name} for {result.amount}")
+                append_skill_damage_event(state, caster, target, self.template, result.amount, is_crit=result.isCrit)
 
     def _heal(
         self,
@@ -476,6 +484,34 @@ class EffectEngine:
         for target in targets:
             grant_random_common_skill(target)
 
+    def _change_terrain(
+        self,
+        state: GameState,
+        caster: BattleEntity,
+        targets: list[BattleEntity],
+        effect: EffectConfig,
+    ) -> None:
+        terrain_type = effect.metadata.get("terrainType")
+        if terrain_type not in TERRAIN_DEFINITIONS or terrain_type == "obstacle":
+            raise EffectEngineError("change_terrain requires a supported non-obstacle terrainType")
+        positions = terrain_effect_positions(
+            state,
+            caster,
+            self.target_position or (targets[0].position if targets else caster.position),
+            effect,
+        )
+        for pos in positions:
+            if terrain_type == "wood_stake" and (is_occupied(state, pos) or occupied_treasure_at(state, pos)):
+                continue
+            change_terrain(
+                state,
+                pos,
+                terrain_type,
+                duration=effect.metadata.get("duration", effect.duration),
+                created_by_skill_id=self.template.id if self.template else None,
+                created_by_entity_id=caster.id,
+            )
+
 
 def use_skill(
     state: GameState,
@@ -500,6 +536,126 @@ def use_skill(
     EffectEngine().apply(state, caster, template, target_id, second_target_id, target_position, direction)
     caster.skillInstances = [skill for skill in caster.skillInstances if skill.instanceId != skill_instance_id]
     state.log.append(f"{caster.name} used {template.name}")
+
+
+def append_skill_cast_event(
+    state: GameState,
+    caster: BattleEntity,
+    template: SkillTemplate,
+    targets: list[BattleEntity],
+    target_position: Position | None,
+    direction: Direction | None,
+) -> None:
+    target_positions = skill_event_target_positions(state, caster, template, targets, target_position, direction)
+    state.recentEvents.append(
+        BattleEvent(
+            id=f"event_{uuid4().hex[:10]}",
+            type="skill_cast",
+            timestamp=time(),
+            actorId=caster.id,
+            targetIds=[target.id for target in targets],
+            sourcePosition=caster.position,
+            targetPosition=target_positions[0] if target_positions else target_position,
+            targetPositions=target_positions,
+            skillTemplateId=template.id,
+            visualKey=skill_visual_key(template),
+            soundKey=skill_sound_key(template),
+        )
+    )
+
+
+def append_skill_damage_event(
+    state: GameState,
+    caster: BattleEntity,
+    target: BattleEntity,
+    template: SkillTemplate | None,
+    amount: int,
+    *,
+    is_crit: bool,
+) -> None:
+    if amount <= 0 or not template:
+        return
+    state.recentEvents.append(
+        BattleEvent(
+            id=f"event_{uuid4().hex[:10]}",
+            type="skill_damage",
+            timestamp=time(),
+            actorId=caster.id,
+            targetIds=[target.id],
+            sourcePosition=caster.position,
+            targetPosition=target.position,
+            targetPositions=[target.position],
+            skillTemplateId=template.id,
+            value=amount,
+            visualKey="critical-hit" if is_crit else skill_visual_key(template),
+            soundKey="damage_hit",
+            metadata={"isCrit": is_crit},
+        )
+    )
+
+
+def skill_event_target_positions(
+    state: GameState,
+    caster: BattleEntity,
+    template: SkillTemplate,
+    targets: list[BattleEntity],
+    target_position: Position | None,
+    direction: Direction | None,
+) -> list[Position]:
+    if template.targetType == "direction" and direction:
+        return directional_path(state, caster, template, direction)
+    if target_position:
+        return [target_position]
+    return [target.position for target in targets]
+
+
+def directional_path(
+    state: GameState,
+    caster: BattleEntity,
+    template: SkillTemplate,
+    direction: Direction,
+) -> list[Position]:
+    dx, dy = {
+        "up": (0, -1),
+        "down": (0, 1),
+        "left": (-1, 0),
+        "right": (1, 0),
+    }[direction]
+    positions: list[Position] = []
+    for step in range(1, template.range + 1):
+        pos = Position(caster.x + dx * step, caster.y + dy * step)
+        if not is_valid_cell(state.gameMap, pos):
+            break
+        positions.append(pos)
+        if blocks_line_of_effect(state.gameMap, pos):
+            break
+    return positions
+
+
+def skill_visual_key(template: SkillTemplate) -> str:
+    if template.visual.visualKey:
+        return template.visual.visualKey
+    if template.id == "laser" or (template.targetType == "direction" and template.areaType == "line"):
+        return "laser-line"
+    if any(effect.type == "heal" for effect in template.effects):
+        return "heal"
+    if any(effect.type in {"create_alliance", "alliance", "link_damage_sync"} for effect in template.effects):
+        return "chain-link"
+    if any(effect.type in {"conditional_execute", "instant_kill"} for effect in template.effects):
+        return "execute"
+    if any(effect.type == "change_terrain" for effect in template.effects):
+        return "terrain-default"
+    return "blast" if template.areaType in {"square", "circle", "cross"} else "slash"
+
+
+def skill_sound_key(template: SkillTemplate) -> str | None:
+    if template.visual.soundKey:
+        return template.visual.soundKey
+    if template.id == "laser" or (template.targetType == "direction" and template.areaType == "line"):
+        return "skill_laser"
+    if any(effect.type == "heal" for effect in template.effects):
+        return "skill_heal"
+    return "skill_blast"
 
 
 def _change_stat(entity: BattleEntity, stat: str, value: int) -> None:
@@ -569,6 +725,36 @@ def expand_area_targets(
         if in_area:
             expanded.append(entity)
     return expanded
+
+
+def terrain_effect_positions(
+    state: GameState,
+    caster: BattleEntity,
+    center: Position,
+    effect: EffectConfig,
+) -> list[Position]:
+    area_type = effect.metadata.get("areaType", "single")
+    size = int(effect.metadata.get("areaSize", 1) or 1)
+    if area_type == "single":
+        return [center]
+    radius = max(1, size // 2)
+    positions: list[Position] = []
+    if area_type == "square":
+        for y in range(center.y - radius, center.y + radius + 1):
+            for x in range(center.x - radius, center.x + radius + 1):
+                positions.append(Position(x, y))
+    elif area_type == "line_4dir":
+        positions.append(center)
+        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+            for step in range(1, size + 1):
+                positions.append(Position(caster.x + dx * step, caster.y + dy * step))
+    else:
+        raise EffectEngineError(f"Unsupported change_terrain areaType: {area_type}")
+    return [
+        pos
+        for pos in positions
+        if 0 <= pos.x < state.gameMap.width and 0 <= pos.y < state.gameMap.height
+    ]
 
 
 def effect_with_metadata_fields(effect: EffectConfig) -> EffectConfig:

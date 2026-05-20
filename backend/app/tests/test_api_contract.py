@@ -78,9 +78,77 @@ def test_start_game_uses_character_data_and_selected_common_skills() -> None:
     assert started.status_code == 201
     state = started.json()
     assert state["mapId"] == "map_default"
+    assert state["map"]["width"] == 8
+    assert len(state["map"]["cells"]) == 64
+    assert all("terrainType" in cell for cell in state["map"]["cells"])
     ranger = next(entity for entity in state["entities"] if entity["id"] == "char_ranger")
     assert ranger["maxHp"] == 90
     assert [skill["templateId"] for skill in ranger["skillInstances"]] == ["bomb"]
+
+
+def test_start_game_with_random_content_serializes_preview_positions() -> None:
+    payload = {
+        "mapTemplateId": "map_default",
+        "selectedCharacterIds": ["char_knight"],
+        "positions": {
+            "char_knight": {"x": 0, "y": 0},
+        },
+        "selectedCommonSkillIdsByCharacterId": {},
+        "randomMonsterCount": 2,
+        "randomTreasureCount": 1,
+        "monsterTemplatePoolIds": [],
+        "rewardSkillPoolTemplateIds": [],
+        "startSeed": "contract_random_start",
+    }
+
+    preview = client.post("/api/game/preview-start", json=payload)
+    assert preview.status_code == 200
+    preview_state = preview.json()
+    assert len(preview_state["previewMonsters"]) == 2
+    assert len(preview_state["previewTreasures"]) == 1
+    assert set(preview_state["previewMonsters"][0]["position"]) == {"x", "y"}
+
+    started = client.post("/api/game/start", json=payload)
+    assert started.status_code == 201
+    state = started.json()
+    assert sum(1 for entity in state["entities"] if entity["type"] == "monster") == 2
+    assert len(state["treasures"]) == 1
+
+
+def test_action_preview_returns_backend_computed_attack_preview() -> None:
+    started = client.post(
+        "/api/game/start",
+        json={
+            "mapId": "map_default",
+            "entityIds": ["char_knight", "char_ranger"],
+            "positions": {
+                "char_knight": {"x": 0, "y": 0},
+                "char_ranger": {"x": 1, "y": 0},
+            },
+            "selectedSkillTemplateIds": {},
+        },
+    )
+    assert started.status_code == 201
+    state = started.json()
+    actor_id = state["currentEntityId"]
+    target_id = "char_ranger" if actor_id == "char_knight" else "char_knight"
+
+    preview = client.post(
+        "/api/game/action-preview",
+        json={
+            "gameId": state["gameId"],
+            "actorId": actor_id,
+            "actionType": "attack",
+            "targetEntityId": target_id,
+        },
+    )
+
+    assert preview.status_code == 200
+    data = preview.json()
+    assert data["valid"] is True
+    assert data["apCost"]["total"] == 1
+    assert data["damagePreviews"][0]["targetEntityId"] == target_id
+    assert data["damagePreviews"][0]["finalDamage"] > 0
 
 
 def test_start_game_rejects_duplicate_deployment_cell() -> None:
@@ -123,6 +191,8 @@ def test_custom_skill_template_supports_icon_and_usage_filters() -> None:
         "canTargetMonster": True,
         "canTargetSummon": True,
         "canTargetTreasure": False,
+        "canTargetTerrain": True,
+        "visual": {"visualKey": "blast", "soundKey": "skill_blast"},
         "effects": [{"type": "damage", "value": 7, "metadata": {}}],
     }
 
@@ -134,6 +204,8 @@ def test_custom_skill_template_supports_icon_and_usage_filters() -> None:
     assert skill["usableAs"] == ["character"]
     assert skill["areaSize"] == 1
     assert skill["canTargetMonster"] is True
+    assert skill["canTargetTerrain"] is True
+    assert skill["visual"]["soundKey"] == "skill_blast"
 
     character_templates = client.get("/api/skills/templates/character").json()
     common_templates = client.get("/api/skills/templates/common").json()

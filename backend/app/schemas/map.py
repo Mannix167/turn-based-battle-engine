@@ -5,12 +5,26 @@ from pydantic import BaseModel, Field
 from app.schemas.common import Position
 
 
+TerrainType = Literal["normal", "obstacle", "lava", "swamp", "wood_stake", "ice", "thunderstorm"]
+
+
+class TerrainState(BaseModel):
+    originalTerrainType: TerrainType | None = None
+    duration: int | Literal["permanent"] | None = None
+    createdBySkillId: str | None = None
+    createdByEntityId: str | None = None
+    hp: int | None = None
+    maxHp: int | None = None
+    defense: int | None = None
+
+
 class MapCell(BaseModel):
     x: int
     y: int
     enabled: bool = True
-    terrainType: Literal["normal"] = "normal"
+    terrainType: TerrainType = "normal"
     tileImageUrl: str | None = None
+    terrainState: TerrainState | None = None
 
 
 class SpawnZone(BaseModel):

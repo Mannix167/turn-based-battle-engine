@@ -1,432 +1,840 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listMaps } from '../api/maps'
 import { listCharacters } from '../api/characters'
 import { listEnabledSkillTemplates } from '../api/skills'
-import { startGame } from '../api/game'
-import type { MapRead } from '../types/map'
+import { previewStart, startGame } from '../api/game'
+import { listMonsterTemplates } from '../api/monsters'
+import type { MapRead, TerrainType } from '../types/map'
+import { TERRAIN_DEFINITIONS, getTerrainTooltip } from '../data/terrain'
 import type { CharacterRead } from '../types/character'
 import type { SkillTemplateRead } from '../types/skill'
-import { TARGET_TYPE_LABELS } from '../types/skill'
+import type { MonsterTemplateRead } from '../types/monster'
+import type { Position, PreviewStartResponse, StartGameRequest } from '../types/game'
 
-type Step = 1 | 2 | 3
-
-interface CharacterSkillSelection {
-  characterId: string
-  skillTemplateIds: string[]
-}
+type SetupStep = 1 | 2 | 3 | 4 | 5
 
 export default function SetupPage() {
   const navigate = useNavigate()
-  const [step, setStep] = useState<Step>(1)
-
-  // Step 1
+  const [step, setStep] = useState<SetupStep>(1)
   const [maps, setMaps] = useState<MapRead[]>([])
-  const [selectedMapId, setSelectedMapId] = useState<string | null>(null)
-
-  // Step 2
   const [characters, setCharacters] = useState<CharacterRead[]>([])
+  const [skills, setSkills] = useState<SkillTemplateRead[]>([])
+  const [monsters, setMonsters] = useState<MonsterTemplateRead[]>([])
+  const [selectedMapId, setSelectedMapId] = useState('')
   const [selectedCharIds, setSelectedCharIds] = useState<string[]>([])
-  const [commonSkills, setCommonSkills] = useState<SkillTemplateRead[]>([])
-  const [charSkills, setCharSkills] = useState<CharacterSkillSelection[]>([])
-  const [collapsedSkillLists, setCollapsedSkillLists] = useState<Record<string, boolean>>({})
-
-  // Step 3
-  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({})
+  const [positions, setPositions] = useState<Record<string, Position>>({})
   const [placingCharId, setPlacingCharId] = useState<string | null>(null)
-
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Record<string, string[]>>({})
+  const [collapsedSkillLists, setCollapsedSkillLists] = useState<Record<string, boolean>>({})
+  const [skillConfigCharId, setSkillConfigCharId] = useState<string | null>(null)
+  const [randomMonsterCount, setRandomMonsterCount] = useState(2)
+  const [randomTreasureCount, setRandomTreasureCount] = useState(1)
+  const [monsterPoolIds, setMonsterPoolIds] = useState<string[]>([])
+  const [rewardPoolIds, setRewardPoolIds] = useState<string[]>([])
+  const [seed, setSeed] = useState<string | null>(null)
+  const [preview, setPreview] = useState<PreviewStartResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([listMaps(), listCharacters(), listEnabledSkillTemplates()]).then(
-      ([m, c, s]) => {
-        setMaps(m)
-        setCharacters(c)
-        setCommonSkills(s.filter((t) => t.category === 'common' && t.usableAs.includes('common')))
-      }
-    )
+    Promise.all([listMaps(), listCharacters(), listEnabledSkillTemplates(), listMonsterTemplates(false)])
+      .then(([mapData, characterData, skillData, monsterData]) => {
+        setMaps(mapData)
+        setCharacters(characterData)
+        setSkills(skillData)
+        setMonsters(monsterData.filter((monster) => monster.enabled))
+        setSelectedMapId(mapData[0]?.id ?? '')
+      })
+      .catch(() => setError('无法加载开局配置数据，请确认后端已启动'))
   }, [])
 
-  // ——— Step 1 ———
-  const handleSelectMap = (id: string) => setSelectedMapId(id)
+  const selectedMap = useMemo(() => maps.find((map) => map.id === selectedMapId) ?? null, [maps, selectedMapId])
+  const commonSkills = useMemo(
+    () => skills.filter((skill) => skill.enabled && skill.usableAs.includes('common')),
+    [skills]
+  )
+  const rewardSkills = useMemo(
+    () => skills.filter((skill) => skill.enabled && (skill.usableAs.includes('common') || skill.usableAs.includes('reward'))),
+    [skills]
+  )
 
-  const goStep2 = () => {
-    if (!selectedMapId) return
-    setStep(2)
-    setError(null)
+  const requestPayload = (overrideSeed: string | null = seed): StartGameRequest => ({
+    mapTemplateId: selectedMapId,
+    selectedCharacterIds: selectedCharIds,
+    positions,
+    selectedCommonSkillIdsByCharacterId: selectedSkillIds,
+    randomMonsterCount,
+    randomTreasureCount,
+    monsterTemplatePoolIds: monsterPoolIds,
+    rewardSkillPoolTemplateIds: rewardPoolIds,
+    startSeed: overrideSeed,
+  })
+
+  const isCellEnabled = (x: number, y: number) => {
+    if (!selectedMap) return false
+    const cell = selectedMap.cells.find((item) => item.x === x && item.y === y)
+    if (cell) return cell.enabled
+    return selectedMap.validCells.length === 0 || selectedMap.validCells.some((cell) => cell.x === x && cell.y === y)
   }
 
-  // ——— Step 2 ———
-  const toggleChar = (id: string) => {
-    setSelectedCharIds((prev) =>
-      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
-    )
-    setCharSkills((prev) => {
-      if (prev.find((s) => s.characterId === id)) {
-        return prev.filter((s) => s.characterId !== id)
+  const terrainAt = (x: number, y: number): TerrainType => {
+    const cell = selectedMap?.cells.find((item) => item.x === x && item.y === y)
+    return cell?.terrainType ?? 'normal'
+  }
+
+  const fixedAt = (x: number, y: number) => selectedMap?.fixedEntities.find((entity) => entity.x === x && entity.y === y)
+  const placedAt = (x: number, y: number) => Object.entries(positions).find(([, pos]) => pos.x === x && pos.y === y)
+  const previewMonsterAt = (x: number, y: number) => preview?.previewMonsters.find((item) => item.position.x === x && item.position.y === y)
+  const previewTreasureAt = (x: number, y: number) => preview?.previewTreasures.find((item) => item.position.x === x && item.position.y === y)
+
+  const toggleCharacter = (id: string) => {
+    setPreview(null)
+    setSelectedCharIds((prev) => {
+      if (prev.includes(id)) {
+        setPositions((current) => {
+          const next = { ...current }
+          delete next[id]
+          return next
+        })
+        return prev.filter((item) => item !== id)
       }
-      return [...prev, { characterId: id, skillTemplateIds: [] }]
+      setPlacingCharId(id)
+      setSkillConfigCharId((current) => current ?? id)
+      return [...prev, id]
     })
   }
 
-  const toggleCharSkill = (charId: string, skillId: string) => {
-    setCharSkills((prev) =>
-      prev.map((s) => {
-        if (s.characterId !== charId) return s
-        const ids = s.skillTemplateIds.includes(skillId)
-          ? s.skillTemplateIds.filter((id) => id !== skillId)
-          : [...s.skillTemplateIds, skillId]
-        return { ...s, skillTemplateIds: ids }
-      })
-    )
-  }
-
-  const toggleSkillListCollapsed = (charId: string) => {
-    setCollapsedSkillLists((prev) => ({ ...prev, [charId]: !prev[charId] }))
-  }
-
-  const goStep3 = () => {
-    if (selectedCharIds.length < 2) {
-      setError('至少选择 2 个角色')
+  useEffect(() => {
+    if (selectedCharIds.length === 0) {
+      setSkillConfigCharId(null)
       return
     }
+    if (!skillConfigCharId || !selectedCharIds.includes(skillConfigCharId)) {
+      setSkillConfigCharId(selectedCharIds[0])
+    }
+  }, [selectedCharIds, skillConfigCharId])
+
+  const toggleCharacterSkill = (characterId: string, skillId: string) => {
+    setPreview(null)
+    setSelectedSkillIds((prev) => {
+      const current = prev[characterId] ?? []
+      return {
+        ...prev,
+        [characterId]: current.includes(skillId)
+          ? current.filter((item) => item !== skillId)
+          : [...current, skillId],
+      }
+    })
+  }
+
+  const togglePoolItem = (id: string, values: string[], setValues: (next: string[]) => void) => {
+    setPreview(null)
+    setValues(values.includes(id) ? values.filter((item) => item !== id) : [...values, id])
+  }
+
+  const placeCharacter = (x: number, y: number) => {
+    if (!placingCharId || !isCellEnabled(x, y) || fixedAt(x, y) || placedAt(x, y)) return
+    const terrainDef = TERRAIN_DEFINITIONS[terrainAt(x, y)]
+    if (!terrainDef.walkable || terrainDef.blocksPlacement) return
+    if (terrainDef.dangerous && !window.confirm(`该格为${terrainDef.name}，确定部署吗？\n${terrainDef.tooltipLines.join('\n')}`)) return
+    const nextPositions = { ...positions, [placingCharId]: { x, y } }
+    setPositions(nextPositions)
+    setPreview(null)
+    setPlacingCharId(selectedCharIds.find((id) => id !== placingCharId && !nextPositions[id]) ?? null)
+  }
+
+  const undoPlacement = (characterId: string) => {
+    setPositions((current) => {
+      const next = { ...current }
+      delete next[characterId]
+      return next
+    })
+    setPreview(null)
+    setPlacingCharId(characterId)
+  }
+
+  const validateStep = (target: SetupStep): boolean => {
     setError(null)
-    setPositions({})
-    setPlacingCharId(selectedCharIds[0])
-    setStep(3)
+    if (target > 1 && !selectedMapId) {
+      setError('请先选择地图')
+      return false
+    }
+    if (target > 2 && selectedCharIds.length === 0) {
+      setError('请至少选择一个出战角色')
+      return false
+    }
+    if (target > 4 && !selectedCharIds.every((id) => positions[id])) {
+      setError('请为所有出战角色设置初始位置')
+      return false
+    }
+    return true
   }
 
-  // ——— Step 3 ———
-  const selectedMap = maps.find((m) => m.id === selectedMapId)
-
-  const isValidCell = (x: number, y: number): boolean => {
-    if (!selectedMap) return false
-    if (selectedMap.validCells.length === 0) return true
-    return selectedMap.validCells.some((c) => c.x === x && c.y === y)
+  const goStep = (target: SetupStep) => {
+    if (validateStep(target)) setStep(target)
   }
 
-  const isOccupied = (x: number, y: number): boolean => {
-    return Object.values(positions).some((p) => p.x === x && p.y === y)
-  }
-
-  const handleCellClick = (x: number, y: number) => {
-    if (!placingCharId) return
-    if (!isValidCell(x, y)) return
-    if (isOccupied(x, y)) return
-    setPositions((prev) => ({ ...prev, [placingCharId]: { x, y } }))
-    // 自动切到下一个未部署角色
-    const unplaced = selectedCharIds.filter(
-      (id) => id !== placingCharId && !positions[id]
-    )
-    // 当前角色刚部署，从整体找下一个
-    const allUnplaced = selectedCharIds.filter(
-      (id) => id !== placingCharId && !{ ...positions, [placingCharId]: { x, y } }[id]
-    )
-    setPlacingCharId(allUnplaced[0] ?? null)
-  }
-
-  const getCharName = (id: string) => characters.find((c) => c.id === id)?.name ?? id
-
-  const handleStartGame = async () => {
-    if (!selectedMapId) return
-    const allPlaced = selectedCharIds.every((id) => positions[id])
-    if (!allPlaced) {
-      setError('请为所有角色分配初始位置')
+  const runPreview = async (nextSeed: string | null = seed) => {
+    if (!selectedMapId || selectedCharIds.length === 0) {
+      setError('请选择地图和至少一个角色')
+      return
+    }
+    if (!selectedCharIds.every((id) => positions[id])) {
+      setError('请为所有出战角色设置初始位置')
       return
     }
     setLoading(true)
     setError(null)
     try {
-      const state = await startGame({
-        mapId: selectedMapId,
-        entityIds: selectedCharIds,
-        positions,
-        selectedSkillTemplateIds: Object.fromEntries(
-          charSkills.map((selection) => [selection.characterId, selection.skillTemplateIds])
-        ),
-      })
+      const data = await previewStart(requestPayload(nextSeed))
+      setPreview(data)
+      setSeed(data.startSeed)
+    } catch (err: unknown) {
+      setError(extractError(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const beginGame = async () => {
+    if (!selectedCharIds.every((id) => positions[id])) {
+      setError('请为所有出战角色设置初始位置')
+      setStep(4)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const readyPreview = preview ?? await previewStart(requestPayload(seed))
+      setPreview(readyPreview)
+      setSeed(readyPreview.startSeed)
+      const state = await startGame(requestPayload(readyPreview.startSeed))
       navigate(`/battle/${state.gameId}`)
     } catch (err: unknown) {
-      const detail =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : undefined
-      setError(`启动游戏失败：${detail ?? '未知错误'}`)
+      setError(extractError(err))
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="setup-page">
-      <div className="setup-header">
-        <button className="btn btn-secondary" onClick={() => navigate('/')}>
-          ← 返回首页
-        </button>
-        <h2 className="setup-title">新建游戏</h2>
-        <div className="setup-steps">
-          {([1, 2, 3] as Step[]).map((s) => (
-            <div key={s} className={`setup-step-dot ${step === s ? 'active' : step > s ? 'done' : ''}`}>
-              {s}
-            </div>
+    <div className="setup-page start-wizard-page">
+      <header className="start-wizard-header">
+        <button className="btn btn-secondary" onClick={() => navigate('/')}>返回首页</button>
+        <div className="start-wizard-title">
+          <span>开局配置</span>
+          <strong>{selectedMap?.name ?? '选择战场'}</strong>
+        </div>
+        <div className="start-wizard-steps">
+          {[
+            [1, '地图'],
+            [2, '角色'],
+            [3, '技能'],
+            [4, '随机部署'],
+            [5, '确认'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              className={`wizard-step ${step === value ? 'active' : step > Number(value) ? 'done' : ''}`}
+              onClick={() => goStep(value as SetupStep)}
+            >
+              <span>{value}</span>{label}
+            </button>
           ))}
         </div>
-      </div>
+      </header>
 
       {error && <div className="setup-error">{error}</div>}
 
-      {/* ===== Step 1: 选择地图 ===== */}
-      {step === 1 && (
-        <div className="setup-body">
-          <h3 className="setup-step-title">第一步：选择地图</h3>
-          <div className="map-grid">
-            {maps.map((m) => (
-              <div
-                key={m.id}
-                className={`map-card ${selectedMapId === m.id ? 'selected' : ''}`}
-                onClick={() => handleSelectMap(m.id)}
-              >
-                <div className="map-card-preview">
-                  <div
-                    className="map-mini-grid"
-                    style={{ gridTemplateColumns: `repeat(${Math.min(m.width, 8)}, 1fr)` }}
-                  >
-                    {Array.from({ length: Math.min(m.height, 8) }).map((_, y) =>
-                      Array.from({ length: Math.min(m.width, 8) }).map((_, x) => {
-                        const valid =
-                          m.validCells.length === 0 ||
-                          m.validCells.some((c) => c.x === x && c.y === y)
-                        return (
-                          <div
-                            key={`${x}-${y}`}
-                            className={`map-mini-cell ${valid ? 'valid' : 'invalid'}`}
-                          />
-                        )
-                      })
-                    )}
-                  </div>
-                </div>
-                <div className="map-card-info">
-                  <div className="map-card-name">{m.name}</div>
-                  <div className="map-card-size">
-                    {m.width} × {m.height}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="setup-footer">
-            <button
-              className="btn btn-primary btn-large"
-              onClick={goStep2}
-              disabled={!selectedMapId}
-            >
-              下一步：选择角色 →
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ===== Step 2: 选择角色与技能 ===== */}
-      {step === 2 && (
-        <div className="setup-body">
-          <h3 className="setup-step-title">第二步：选择参战角色与通用技能</h3>
-          <p className="setup-hint">至少选择 2 个角色，并为每个角色选择开局通用技能（可不选）</p>
-          <div className="char-select-list">
-            {characters.length === 0 && (
-              <p className="empty-text">暂无角色，请先在角色编辑器中创建角色</p>
-            )}
-            {characters.map((char) => {
-              const isSelected = selectedCharIds.includes(char.id)
-              const skillSel = charSkills.find((s) => s.characterId === char.id)
-              return (
-                <div
-                  key={char.id}
-                  className={`char-select-item ${isSelected ? 'selected' : ''}`}
+      <main className="start-wizard-body">
+        {step === 1 && (
+          <section className="wizard-stage map-stage">
+            <div className="map-stage-list">
+              <h3>选择地图</h3>
+              {maps.map((map) => (
+                <button
+                  key={map.id}
+                  className={`map-choice-row ${selectedMapId === map.id ? 'selected' : ''}`}
+                  onClick={() => {
+                    setSelectedMapId(map.id)
+                    setPreview(null)
+                  }}
                 >
-                  <div className="char-select-header" onClick={() => toggleChar(char.id)}>
-                    <div className="char-select-check">
-                      <input type="checkbox" readOnly checked={isSelected} />
-                    </div>
-                    <div className="char-select-portrait">
-                      {char.portraitImageUrl ? (
-                        <img src={char.portraitImageUrl} alt={char.name} />
-                      ) : (
-                        <div className="portrait-placeholder-sm">
-                          {char.name.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                    </div>
-                    <div className="char-select-info">
-                      <div className="char-select-name">{char.name}</div>
-                      <div className="char-select-stats">
-                        HP:{char.maxHp} ATK:{char.baseAttack} DEF:{char.baseDefense} SPD:{char.speed}
-                      </div>
-                    </div>
-                  </div>
-                  {isSelected && commonSkills.length > 0 && (
-                    <div className="char-skill-select">
-                      <div className="char-skill-label">
-                        <span>开局通用技能</span>
-                        <span className="char-skill-count">已选 {skillSel?.skillTemplateIds.length ?? 0}</span>
-                        <button
-                          type="button"
-                          className="skill-list-collapse-btn"
-                          onClick={() => toggleSkillListCollapsed(char.id)}
-                        >
-                          {collapsedSkillLists[char.id] ? '展开' : '收起'}
-                        </button>
-                      </div>
-                      {!collapsedSkillLists[char.id] && <div className="setup-skill-card-grid">
-                        {commonSkills.map((tmpl) => {
-                          const checked = skillSel?.skillTemplateIds.includes(tmpl.id) ?? false
-                          return (
-                            <button
-                              key={tmpl.id}
-                              type="button"
-                              className={`setup-skill-card ${checked ? 'checked' : ''}`}
-                              onClick={() => toggleCharSkill(char.id, tmpl.id)}
-                            >
-                              <span className="setup-skill-check" aria-hidden="true" />
-                              <span className="setup-skill-icon">
-                                {tmpl.iconUrl ? <img src={tmpl.iconUrl} alt={tmpl.name} /> : '技'}
-                              </span>
-                              <span className="setup-skill-info">
-                                <span className="setup-skill-name">{tmpl.name}</span>
-                                <span className="setup-skill-desc">{tmpl.description || '暂无技能描述'}</span>
-                                <span className="setup-skill-meta">
-                                  <span>行动 {tmpl.cost}</span>
-                                  <span>范围 {tmpl.range}</span>
-                                  <span>{TARGET_TYPE_LABELS[tmpl.targetType]}</span>
-                                </span>
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-          <div className="setup-footer">
-            <button className="btn btn-secondary" onClick={() => setStep(1)}>
-              ← 上一步
-            </button>
-            <button
-              className="btn btn-primary btn-large"
-              onClick={goStep3}
-              disabled={selectedCharIds.length < 2}
-            >
-              下一步：初始部署 →
-            </button>
-          </div>
-        </div>
-      )}
+                  <strong>{map.name}</strong>
+                  <span>{map.width} x {map.height} / 可用格 {map.validCells.length || map.cells.filter((cell) => cell.enabled).length}</span>
+                </button>
+              ))}
+            </div>
+            <div className="map-stage-preview">
+              <h3>地图预览</h3>
+              <SetupBoard
+                map={selectedMap}
+                characters={characters}
+                positions={{}}
+                isCellEnabled={isCellEnabled}
+                terrainAt={terrainAt}
+              />
+            </div>
+            <WizardNav step={step} canNext={Boolean(selectedMapId)} onPrev={() => goStep(1)} onNext={() => goStep(2)} />
+          </section>
+        )}
 
-      {/* ===== Step 3: 初始部署 ===== */}
-      {step === 3 && selectedMap && (
-        <div className="setup-body">
-          <h3 className="setup-step-title">第三步：初始部署</h3>
-          <p className="setup-hint">
-            {placingCharId
-              ? `正在放置：${getCharName(placingCharId)}（点击地图格子）`
-              : '所有角色已部署，可以开始游戏'}
-          </p>
-          <div className="deploy-layout">
-            <div className="deploy-board-wrap">
-              <div
-                className="deploy-board"
-                style={{
-                  gridTemplateColumns: `repeat(${selectedMap.width}, 1fr)`,
-                  gridTemplateRows: `repeat(${selectedMap.height}, 1fr)`,
-                  width: `${Math.min(selectedMap.width * 52, 520)}px`,
-                  height: `${Math.min(selectedMap.height * 52, 520)}px`,
-                }}
-              >
-                {Array.from({ length: selectedMap.height }).map((_, y) =>
-                  Array.from({ length: selectedMap.width }).map((_, x) => {
-                    const valid = isValidCell(x, y)
-                    const occ = Object.entries(positions).find(([, p]) => p.x === x && p.y === y)
-                    const isPlacing = placingCharId !== null && valid && !occ
-                    return (
-                      <div
-                        key={`${x}-${y}`}
-                        className={`deploy-cell ${!valid ? 'invalid' : ''} ${isPlacing ? 'placeable' : ''} ${occ ? 'occupied' : ''}`}
-                        onClick={() => handleCellClick(x, y)}
-                        title={occ ? getCharName(occ[0]) : `(${x},${y})`}
-                      >
-                        {occ && (
-                          <div className="deploy-token">
-                            {(() => {
-                              const c = characters.find((ch) => ch.id === occ[0])
-                              return c?.tokenImageUrl ? (
-                                <img src={c.tokenImageUrl} alt={c.name} />
-                              ) : (
-                                <span>{getCharName(occ[0]).charAt(0).toUpperCase()}</span>
-                              )
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })
-                )}
+        {step === 2 && (
+          <section className="wizard-stage character-stage">
+            <div className="wizard-stage-head">
+              <div>
+                <h3>选择出战角色</h3>
+                <p>先确定队伍成员。下一步会为每位角色配置开局通用技能。</p>
               </div>
             </div>
-            <div className="deploy-sidebar">
-              <div className="deploy-char-list">
+            <div className="setup-character-grid">
+              {characters.map((character) => (
+                <CharacterPickCard
+                  key={character.id}
+                  character={character}
+                  selected={selectedCharIds.includes(character.id)}
+                  onToggle={() => toggleCharacter(character.id)}
+                />
+              ))}
+            </div>
+            <WizardNav step={step} canNext={selectedCharIds.length > 0} onPrev={() => goStep(1)} onNext={() => goStep(3)} />
+          </section>
+        )}
+
+        {step === 3 && (
+          <section className="wizard-stage skill-stage refined-skill-stage">
+            <div className="wizard-stage-head">
+              <div>
+                <h3>配置开局技能</h3>
+                <p>选择一名角色，再从右侧技能库中勾选开局携带的通用技能。</p>
+              </div>
+            </div>
+            <div className="skill-loadout-layout">
+              <div className="skill-loadout-roster">
+                {selectedCharIds.map((id) => {
+                  const character = characters.find((item) => item.id === id)
+                  if (!character) return null
+                  const count = selectedSkillIds[id]?.length ?? 0
+                  return (
+                    <button
+                      key={id}
+                      className={`loadout-roster-card ${skillConfigCharId === id ? 'active' : ''}`}
+                      onClick={() => setSkillConfigCharId(id)}
+                    >
+                      <span className="loadout-avatar">
+                        {character.tokenImageUrl ? <img src={character.tokenImageUrl} alt={character.name} /> : character.name.charAt(0)}
+                      </span>
+                      <span>
+                        <strong>{character.name}</strong>
+                        <small>已选 {count} 个技能</small>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              {skillConfigCharId && (
+                <SkillLoadoutPanel
+                  character={characters.find((item) => item.id === skillConfigCharId) ?? null}
+                  skills={commonSkills}
+                  selectedSkillIds={selectedSkillIds[skillConfigCharId] ?? []}
+                  collapsed={collapsedSkillLists[skillConfigCharId] ?? false}
+                  onToggleCollapse={() => setCollapsedSkillLists((prev) => ({ ...prev, [skillConfigCharId]: !prev[skillConfigCharId] }))}
+                  onToggleSkill={(skillId) => toggleCharacterSkill(skillConfigCharId, skillId)}
+                />
+              )}
+            </div>
+            <WizardNav step={step} canNext={selectedCharIds.length > 0} onPrev={() => goStep(2)} onNext={() => goStep(4)} />
+          </section>
+        )}
+
+        {step === 4 && (
+          <section className="wizard-stage deploy-stage">
+            <div className="deploy-stage-board">
+              <div className="wizard-stage-head">
+                <div>
+                  <h3>随机性与初始部署</h3>
+                  <p>{placingCharId ? `正在部署：${getCharacterName(characters, placingCharId)}` : '点击角色条可重新选择部署对象'}</p>
+                </div>
+                <button className="btn btn-primary" onClick={() => runPreview(seed)} disabled={loading || !selectedCharIds.every((id) => positions[id])}>随机预览</button>
+              </div>
+              <SetupBoard
+                map={selectedMap}
+                characters={characters}
+                positions={positions}
+                placingCharId={placingCharId}
+                preview={preview}
+                isCellEnabled={isCellEnabled}
+                terrainAt={terrainAt}
+                fixedAt={fixedAt}
+                placedAt={placedAt}
+                previewMonsterAt={previewMonsterAt}
+                previewTreasureAt={previewTreasureAt}
+                onCellClick={placeCharacter}
+              />
+              <div className="deploy-roster">
                 {selectedCharIds.map((id) => {
                   const pos = positions[id]
-                  const isPlacing = placingCharId === id
                   return (
-                    <div
+                    <button
                       key={id}
-                      className={`deploy-char-item ${isPlacing ? 'placing' : ''} ${pos ? 'placed' : ''}`}
-                      onClick={() => !pos && setPlacingCharId(id)}
+                      className={`deploy-roster-item ${placingCharId === id ? 'active' : ''} ${pos ? 'placed' : ''}`}
+                      onClick={() => setPlacingCharId(id)}
                     >
-                      <div className="deploy-char-name">{getCharName(id)}</div>
-                      <div className="deploy-char-status">
-                        {pos ? `已部署 (${pos.x},${pos.y})` : isPlacing ? '放置中...' : '待部署'}
-                      </div>
+                      <span className="deploy-roster-avatar">
+                        {getCharacterImage(characters, id) ? <img src={getCharacterImage(characters, id) ?? ''} alt={getCharacterName(characters, id)} /> : getCharacterName(characters, id).charAt(0)}
+                      </span>
+                      <span className="deploy-roster-copy">
+                        <strong>{getCharacterName(characters, id)}</strong>
+                        <small>{pos ? `(${pos.x}, ${pos.y})` : '待部署'}</small>
+                      </span>
                       {pos && (
-                        <button
-                          className="btn btn-danger btn-sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setPositions((prev) => {
-                              const next = { ...prev }
-                              delete next[id]
-                              return next
-                            })
-                            setPlacingCharId(id)
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className="deploy-undo"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            undoPlacement(id)
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              event.stopPropagation()
+                              undoPlacement(id)
+                            }
                           }}
                         >
-                          撤回
-                        </button>
+                          撤销
+                        </span>
                       )}
-                    </div>
+                    </button>
                   )
                 })}
               </div>
             </div>
-          </div>
-          <div className="setup-footer">
-            <button className="btn btn-secondary" onClick={() => setStep(2)}>
-              ← 上一步
-            </button>
-            <button
-              className="btn btn-primary btn-large"
-              onClick={handleStartGame}
-              disabled={loading || !selectedCharIds.every((id) => positions[id])}
-            >
-              {loading ? '启动中...' : '开始游戏！'}
-            </button>
-          </div>
+
+            <aside className="deploy-stage-config">
+              <div className="start-section compact">
+                <h3>随机数量</h3>
+                <label className="form-row">
+                  <span className="form-label">随机小怪数量</span>
+                  <input className="form-input" type="number" min={0} value={randomMonsterCount} onChange={(e) => { setRandomMonsterCount(Number(e.target.value)); setPreview(null) }} />
+                </label>
+                <label className="form-row">
+                  <span className="form-label">随机藏宝点数量</span>
+                  <input className="form-input" type="number" min={0} value={randomTreasureCount} onChange={(e) => { setRandomTreasureCount(Number(e.target.value)); setPreview(null) }} />
+                </label>
+                <label className="form-row">
+                  <span className="form-label">Seed</span>
+                  <input className="form-input" value={seed ?? ''} placeholder="留空自动生成" onChange={(e) => { setSeed(e.target.value || null); setPreview(null) }} />
+                </label>
+              </div>
+              <PoolPanel
+                title="小怪池"
+                emptyHint="默认全部启用小怪"
+                items={monsters.map((monster) => ({ id: monster.id, name: monster.name, meta: `HP ${monster.maxHp} / ATK ${monster.baseAttack}` }))}
+                values={monsterPoolIds}
+                onToggle={(id) => togglePoolItem(id, monsterPoolIds, setMonsterPoolIds)}
+              />
+              <PoolPanel
+                title="奖励池"
+                emptyHint="默认全部可奖励通用技能"
+                items={rewardSkills.map((skill) => ({ id: skill.id, name: skill.name, meta: `费 ${skill.cost} / 距 ${skill.range}` }))}
+                values={rewardPoolIds}
+                onToggle={(id) => togglePoolItem(id, rewardPoolIds, setRewardPoolIds)}
+              />
+            </aside>
+
+            <WizardNav step={step} canNext={selectedCharIds.every((id) => positions[id])} onPrev={() => goStep(3)} onNext={() => goStep(5)} />
+          </section>
+        )}
+
+        {step === 5 && (
+          <section className="wizard-stage confirm-stage">
+            <div className="confirm-panel">
+              <h3>确认开局</h3>
+              <div className="confirm-layout">
+                <div className="confirm-map-preview">
+                  <SetupBoard
+                    map={selectedMap}
+                    characters={characters}
+                    positions={positions}
+                    preview={preview}
+                    isCellEnabled={isCellEnabled}
+                    terrainAt={terrainAt}
+                    fixedAt={fixedAt}
+                    placedAt={placedAt}
+                    previewMonsterAt={previewMonsterAt}
+                    previewTreasureAt={previewTreasureAt}
+                  />
+                </div>
+                <div className="confirm-grid">
+                  <SummaryTile label="地图" value={selectedMap?.name ?? '-'} />
+                  <SummaryTile label="出战角色" value={`${selectedCharIds.length}`} />
+                  <SummaryTile label="随机小怪" value={`${preview?.previewMonsters.length ?? randomMonsterCount}`} />
+                  <SummaryTile label="随机宝点" value={`${preview?.previewTreasures.length ?? randomTreasureCount}`} />
+                  <SummaryTile label="奖励池" value={`${preview?.rewardSkillPoolTemplateIds.length ?? (rewardPoolIds.length || rewardSkills.length)}`} />
+                  <SummaryTile label="Seed" value={preview?.startSeed ?? seed ?? '自动'} />
+                </div>
+              </div>
+              <div className="confirm-warning-list">
+                {preview?.warnings.map((warning) => <span key={warning} className="warning-pill">{warning}</span>)}
+                {!preview && <span className="muted-pill">尚未预览，开始游戏时会自动生成并固化随机结果</span>}
+              </div>
+              <div className="confirm-actions">
+                <button className="btn btn-secondary" onClick={() => goStep(4)}>返回调整</button>
+                <button className="btn btn-secondary" onClick={() => runPreview(null)} disabled={loading || !selectedCharIds.every((id) => positions[id])}>重新随机</button>
+                <button className="btn btn-primary btn-large" onClick={beginGame} disabled={loading}>
+                  {loading ? '启动中...' : '开始游戏'}
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+      </main>
+    </div>
+  )
+}
+
+function SetupBoard({
+  map,
+  characters,
+  positions,
+  placingCharId,
+  preview,
+  isCellEnabled,
+  terrainAt,
+  fixedAt,
+  placedAt,
+  previewMonsterAt,
+  previewTreasureAt,
+  onCellClick,
+}: {
+  map: MapRead | null
+  characters: CharacterRead[]
+  positions: Record<string, Position>
+  placingCharId?: string | null
+  preview?: PreviewStartResponse | null
+  isCellEnabled: (x: number, y: number) => boolean
+  terrainAt: (x: number, y: number) => TerrainType
+  fixedAt?: (x: number, y: number) => MapRead['fixedEntities'][number] | undefined
+  placedAt?: (x: number, y: number) => [string, Position] | undefined
+  previewMonsterAt?: (x: number, y: number) => PreviewStartResponse['previewMonsters'][number] | undefined
+  previewTreasureAt?: (x: number, y: number) => PreviewStartResponse['previewTreasures'][number] | undefined
+  onCellClick?: (x: number, y: number) => void
+}) {
+  const [zoom, setZoom] = useState(1)
+  if (!map) return <div className="setup-empty-board">暂无地图</div>
+  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const next = zoom * (event.deltaY < 0 ? 1.1 : 0.9)
+    setZoom(Math.max(0.45, Math.min(2.25, next)))
+  }
+  return (
+    <div className="setup-board-frame setup-board-zoomable" onWheel={handleWheel}>
+      <div className="setup-board-tools">
+        <span>{Math.round(zoom * 100)}%</span>
+        <button type="button" onClick={() => setZoom(1)}>重置</button>
+      </div>
+      <div
+        className="setup-big-board"
+        style={{
+          gridTemplateColumns: `repeat(${map.width}, minmax(30px, 1fr))`,
+          transform: `scale(${zoom})`,
+        }}
+      >
+        {Array.from({ length: map.height }).flatMap((_, y) =>
+          Array.from({ length: map.width }).map((_, x) => {
+            const enabled = isCellEnabled(x, y)
+            const terrainType = terrainAt(x, y)
+            const terrainDef = TERRAIN_DEFINITIONS[terrainType]
+            const fixed = fixedAt?.(x, y)
+            const placed = placedAt?.(x, y)
+            const pMonster = previewMonsterAt?.(x, y)
+            const pTreasure = previewTreasureAt?.(x, y)
+            const placeable = Boolean(placingCharId && enabled && terrainDef.walkable && !terrainDef.blocksPlacement && !fixed && !placed)
+            const title = `${x},${y}\n${getTerrainTooltip(terrainType)}`
+            return (
+              <button
+                key={`${x}-${y}`}
+                className={[
+                  'setup-board-cell',
+                  enabled ? 'enabled' : 'disabled',
+                  terrainType !== 'normal' ? `cell-terrain-${terrainType}` : '',
+                  terrainDef.dangerous ? 'cell-terrain-danger' : '',
+                  placeable ? 'placeable' : '',
+                ].filter(Boolean).join(' ')}
+                style={{
+                  backgroundImage: enabled && terrainType !== 'normal' ? `url(${terrainDef.imageUrl})` : undefined,
+                }}
+                title={title}
+                onClick={() => onCellClick?.(x, y)}
+              >
+                {fixed?.type === 'monster' && <span className="setup-cell-token token-fixed-monster">M</span>}
+                {fixed?.type === 'treasure' && <span className="setup-cell-token token-fixed-treasure">T</span>}
+                {placed && (
+                  <span className="setup-cell-token token-player setup-cell-avatar">
+                    {getCharacterImage(characters, placed[0]) ? (
+                      <img src={getCharacterImage(characters, placed[0]) ?? ''} alt={getCharacterName(characters, placed[0])} />
+                    ) : (
+                      getCharacterName(characters, placed[0]).charAt(0)
+                    )}
+                  </span>
+                )}
+                {pMonster && <span className="setup-cell-token token-preview-monster">R</span>}
+                {pTreasure && <span className="setup-cell-token token-preview-treasure">P</span>}
+              </button>
+            )
+          })
+        )}
+      </div>
+      {preview && (
+        <div className="setup-board-preview-note">
+          已预览：随机小怪 {preview.previewMonsters.length}，藏宝点 {preview.previewTreasures.length}
         </div>
       )}
     </div>
   )
+}
+
+function WizardNav({
+  step,
+  canNext,
+  onPrev,
+  onNext,
+}: {
+  step: SetupStep
+  canNext: boolean
+  onPrev: () => void
+  onNext: () => void
+}) {
+  return (
+    <div className="wizard-nav-row">
+      <button className="btn btn-secondary" onClick={onPrev} disabled={step === 1}>上一步</button>
+      <button className="btn btn-primary btn-large" onClick={onNext} disabled={!canNext}>
+        下一步
+      </button>
+    </div>
+  )
+}
+
+function CharacterPickCard({
+  character,
+  selected,
+  onToggle,
+}: {
+  character: CharacterRead
+  selected: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button className={`setup-character-pick ${selected ? 'selected' : ''}`} onClick={onToggle}>
+      <span className="setup-character-portrait">
+        {character.portraitImageUrl || character.tokenImageUrl ? (
+          <img src={character.portraitImageUrl ?? character.tokenImageUrl ?? ''} alt={character.name} />
+        ) : (
+          character.name.charAt(0)
+        )}
+      </span>
+      <span className="setup-character-info">
+        <strong>{character.name}</strong>
+        <span>HP {character.maxHp} / ATK {character.baseAttack} / DEF {character.baseDefense}</span>
+        <small>SPD {character.speed} / CRIT {character.critRate}% / LUCK {character.luck}</small>
+      </span>
+      <span className="setup-character-state">{selected ? '已出战' : '加入队伍'}</span>
+    </button>
+  )
+}
+
+function SkillLoadoutPanel({
+  character,
+  skills,
+  selectedSkillIds,
+  collapsed,
+  onToggleCollapse,
+  onToggleSkill,
+}: {
+  character: CharacterRead | null
+  skills: SkillTemplateRead[]
+  selectedSkillIds: string[]
+  collapsed: boolean
+  onToggleCollapse: () => void
+  onToggleSkill: (skillId: string) => void
+}) {
+  if (!character) return <div className="skill-loadout-panel empty">请选择角色</div>
+  return (
+    <article className="skill-loadout-panel">
+      <header className="skill-loadout-head">
+        <div className="loadout-hero">
+          <span className="loadout-hero-avatar">
+            {character.tokenImageUrl ? <img src={character.tokenImageUrl} alt={character.name} /> : character.name.charAt(0)}
+          </span>
+          <div>
+            <span>正在配置</span>
+            <strong>{character.name}</strong>
+            <small>已选择 {selectedSkillIds.length} / {skills.length}</small>
+          </div>
+        </div>
+        <button className="btn btn-secondary btn-sm" onClick={onToggleCollapse}>
+          {collapsed ? '展开技能库' : '收起技能库'}
+        </button>
+      </header>
+      {!collapsed && (
+        <div className="loadout-skill-board">
+          {skills.map((skill) => {
+            const checked = selectedSkillIds.includes(skill.id)
+            return (
+              <button
+                key={skill.id}
+                className={`loadout-skill-card ${checked ? 'checked' : ''}`}
+                onClick={() => onToggleSkill(skill.id)}
+              >
+                <span className="loadout-skill-icon">
+                  {skill.iconUrl ? <img src={skill.iconUrl} alt={skill.name} /> : '技'}
+                </span>
+                <span className="loadout-skill-main">
+                  <strong>{skill.name}</strong>
+                  <span>{skill.description || '暂无技能描述'}</span>
+                  <small>消耗 {skill.cost} AP / 范围 {skill.range} / {skill.areaType}</small>
+                </span>
+                <span className="loadout-skill-check">{checked ? '已选' : '选择'}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </article>
+  )
+}
+
+function CharacterSkillPanel({
+  character,
+  selected,
+  position,
+  skills,
+  selectedSkillIds,
+  collapsed,
+  onToggleCharacter,
+  onToggleCollapse,
+  onToggleSkill,
+}: {
+  character: CharacterRead
+  selected: boolean
+  position?: Position
+  skills: SkillTemplateRead[]
+  selectedSkillIds: string[]
+  collapsed: boolean
+  onToggleCharacter: () => void
+  onToggleCollapse: () => void
+  onToggleSkill: (skillId: string) => void
+}) {
+  return (
+    <article className={`wizard-character-card ${selected ? 'selected' : ''}`}>
+      <div className="wizard-character-head">
+        <button className="wizard-character-select" onClick={onToggleCharacter}>
+          <span className="wizard-character-avatar">
+            {character.tokenImageUrl ? <img src={character.tokenImageUrl} alt={character.name} /> : character.name.charAt(0)}
+          </span>
+          <span>
+            <strong>{character.name}</strong>
+            <small>HP {character.maxHp} / ATK {character.baseAttack} / DEF {character.baseDefense} / SPD {character.speed}</small>
+            <small>{position ? `部署 (${position.x}, ${position.y})` : selected ? '已出战，待部署' : '点击加入出战'}</small>
+          </span>
+        </button>
+        {selected && (
+          <button className="btn btn-secondary btn-sm" onClick={onToggleCollapse}>
+            {collapsed ? `展开技能 (${skills.length})` : '收起技能'}
+          </button>
+        )}
+      </div>
+      {selected && !collapsed && (
+        <div className="wizard-skill-grid">
+          {skills.map((skill) => {
+            const checked = selectedSkillIds.includes(skill.id)
+            return (
+              <button
+                key={skill.id}
+                className={`wizard-skill-card ${checked ? 'checked' : ''}`}
+                onClick={() => onToggleSkill(skill.id)}
+              >
+                <span className="wizard-skill-check" />
+                <span className="wizard-skill-icon">
+                  {skill.iconUrl ? <img src={skill.iconUrl} alt={skill.name} /> : '技'}
+                </span>
+                <span className="wizard-skill-copy">
+                  <strong>{skill.name}</strong>
+                  <span>{skill.description || '暂无技能描述'}</span>
+                  <small>行动 {skill.cost} / 范围 {skill.range} / {skill.areaType}</small>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </article>
+  )
+}
+
+function PoolPanel({
+  title,
+  emptyHint,
+  items,
+  values,
+  onToggle,
+}: {
+  title: string
+  emptyHint: string
+  items: { id: string; name: string; meta: string }[]
+  values: string[]
+  onToggle: (id: string) => void
+}) {
+  return (
+    <div className="start-section compact">
+      <div className="start-section-head">
+        <h3>{title}</h3>
+        <span className="pool-count">{values.length || '默认'}</span>
+      </div>
+      <p className="pool-hint">{emptyHint}</p>
+      <div className="start-pool-list">
+        {items.map((item) => (
+          <button key={item.id} className={`pool-item ${values.includes(item.id) ? 'checked' : ''}`} onClick={() => onToggle(item.id)}>
+            <span>{item.name}</span>
+            <small>{item.meta}</small>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SummaryTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="summary-tile">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
+function getCharacterName(characters: CharacterRead[], id: string): string {
+  return characters.find((character) => character.id === id)?.name ?? id
+}
+
+function getCharacterImage(characters: CharacterRead[], id: string): string | null {
+  const character = characters.find((item) => item.id === id)
+  return character?.tokenImageUrl ?? character?.portraitImageUrl ?? null
+}
+
+function extractError(err: unknown): string {
+  const detail =
+    err && typeof err === 'object' && 'response' in err
+      ? (err as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+      : undefined
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) return detail.join('、')
+  if (detail && typeof detail === 'object' && 'message' in detail) {
+    return String((detail as { message: string }).message)
+  }
+  return '操作失败'
 }

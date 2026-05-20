@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createMap, deleteMap, duplicateMap, listMaps, updateMap, validateMap } from '../api/maps'
-import type { MapFixedEntity, MapRandomRule, MapRead, MapWrite, SpawnZone } from '../types/map'
+import type { MapFixedEntity, MapRead, MapWrite, SpawnZone, TerrainType } from '../types/map'
+import { TERRAIN_DEFINITIONS, TERRAIN_TYPES, getTerrainTooltip } from '../data/terrain'
 
 /* ── helpers ── */
 
@@ -57,8 +58,11 @@ export default function MapEditorPage() {
   const [loading, setLoading] = useState(false)
 
   /* 编辑模式：用于地图网格点击行为 */
-  type EditMode = 'cell' | 'spawn' | 'entity'
+  type EditMode = 'cell' | 'terrain' | 'spawn' | 'entity'
   const [editMode, setEditMode] = useState<EditMode>('cell')
+  const [terrainBrush, setTerrainBrush] = useState<TerrainType>('obstacle')
+  const [isPainting, setIsPainting] = useState(false)
+  const [hoveredCell, setHoveredCell] = useState<string | null>(null)
   const [spawnZoneIdx, setSpawnZoneIdx] = useState(0)
 
   const isBuiltIn = selected?.createdAt === 'built-in'
@@ -109,7 +113,7 @@ export default function MapEditorPage() {
   const resize = (width: number, height: number) => {
     const nextCells = makeCells(width, height).map((cell) => {
       const previous = form.cells.find((item) => item.x === cell.x && item.y === cell.y)
-      return previous ? { ...cell, enabled: previous.enabled } : cell
+      return previous ? { ...cell, enabled: previous.enabled, terrainType: previous.terrainType } : cell
     })
     setForm((prev) => ({
       ...prev,
@@ -131,13 +135,23 @@ export default function MapEditorPage() {
     }))
   }
 
+  const paintTerrain = (x: number, y: number, terrainType: TerrainType) => {
+    setForm((prev) => ({
+      ...prev,
+      cells: prev.cells.map((cell) =>
+        cell.x === x && cell.y === y ? { ...cell, terrainType } : cell
+      ),
+    }))
+  }
+
   /* ── grid click handler (by editMode) ── */
 
   const handleGridClick = (x: number, y: number) => {
     if (editMode === 'cell') {
       toggleCell(x, y)
+    } else if (editMode === 'terrain') {
+      paintTerrain(x, y, terrainBrush)
     } else if (editMode === 'spawn') {
-      // toggle cell in/out of the active spawn zone
       setForm((prev) => {
         const zone = prev.spawnZones[spawnZoneIdx]
         if (!zone) return prev
@@ -149,7 +163,31 @@ export default function MapEditorPage() {
         return { ...prev, spawnZones: newZones }
       })
     }
-    // entity mode: handled by fixed entity form, not grid click
+  }
+
+  const handleGridMouseDown = (x: number, y: number, e: React.MouseEvent) => {
+    if (e.button === 2 && editMode === 'terrain') {
+      e.preventDefault()
+      paintTerrain(x, y, 'normal')
+      setIsPainting(false)
+      return
+    }
+    if (editMode === 'terrain' && e.button === 0) {
+      paintTerrain(x, y, terrainBrush)
+      setIsPainting(true)
+    }
+  }
+
+  const handleGridMouseEnter = (x: number, y: number) => {
+    const key = `${x},${y}`
+    setHoveredCell(key)
+    if (isPainting && editMode === 'terrain') {
+      paintTerrain(x, y, terrainBrush)
+    }
+  }
+
+  const handleGridMouseUp = () => {
+    setIsPainting(false)
   }
 
   /* ── Spawn Zones ── */
@@ -194,33 +232,42 @@ export default function MapEditorPage() {
     setForm((prev) => ({ ...prev, fixedEntities: prev.fixedEntities.filter((_, i) => i !== index) }))
   }
 
-  /* ── Random Rules ── */
-
-  const addRandomRule = () => {
-    const rule: MapRandomRule = { id: genId('rule'), type: 'monster', count: 2, allowedCells: [], excludedCells: [], templatePool: [] }
-    setForm((prev) => ({ ...prev, randomRules: [...prev.randomRules, rule] }))
-  }
-
-  const updateRandomRule = (index: number, patch: Partial<MapRandomRule>) => {
-    setForm((prev) => ({
-      ...prev,
-      randomRules: prev.randomRules.map((r, i) => (i === index ? { ...r, ...patch } : r)),
-    }))
-  }
-
-  const removeRandomRule = (index: number) => {
-    setForm((prev) => ({ ...prev, randomRules: prev.randomRules.filter((_, i) => i !== index) }))
-  }
-
   /* ── save / validate / duplicate / delete ── */
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault()
+    // 前端轻量验证提示
+    const warnings: string[] = []
+    form.fixedEntities.forEach((e) => {
+      const cell = form.cells.find((c) => c.x === e.x && c.y === e.y)
+      if (cell && (cell.terrainType === 'obstacle' || cell.terrainType === 'wood_stake')) {
+        warnings.push(`固定实体 (${e.x},${e.y}) 位于${TERRAIN_DEFINITIONS[cell.terrainType].name}上，后端可能拒绝`)
+      }
+    })
+    form.spawnZones.forEach((zone) => {
+      zone.cells.forEach((c) => {
+        const cell = form.cells.find((sc) => sc.x === c.x && sc.y === c.y)
+        if (cell) {
+          if (cell.terrainType === 'obstacle' || cell.terrainType === 'wood_stake') {
+            warnings.push(`部署区「${zone.name}」的格子 (${c.x},${c.y}) 为${TERRAIN_DEFINITIONS[cell.terrainType].name}，不可部署`)
+          }
+          if (cell.terrainType === 'lava' || cell.terrainType === 'thunderstorm') {
+            warnings.push(`部署区「${zone.name}」的格子 (${c.x},${c.y}) 为${TERRAIN_DEFINITIONS[cell.terrainType].name}，⚠️ 危险地形`)
+          }
+        }
+      })
+    })
+    if (warnings.length > 0) {
+      const proceed = window.confirm(`存在以下警告：\n${warnings.join('\n')}\n\n仍要保存吗？后端会做最终校验。`)
+      if (!proceed) return
+    }
+
     setLoading(true)
     setMessage(null)
     try {
       const payload = {
         ...form,
+        randomRules: [],
         validCells: form.cells.filter((cell) => cell.enabled).map(({ x, y }) => ({ x, y })),
       }
       const saved = selected ? await updateMap(selected.id, payload) : await createMap(payload)
@@ -360,10 +407,36 @@ export default function MapEditorPage() {
                 <button type="button" className={`btn btn-sm ${editMode === 'cell' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setEditMode('cell')}>
                   启用/禁用格子
                 </button>
+                <button type="button" className={`btn btn-sm ${editMode === 'terrain' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setEditMode('terrain')}>
+                  🖌️ 地形刷子
+                </button>
                 <button type="button" className={`btn btn-sm ${editMode === 'spawn' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setEditMode('spawn'); if (form.spawnZones.length === 0) addSpawnZone(); }}>
                   部署区
                 </button>
               </div>
+
+              {/* 地形刷子选择栏 */}
+              {editMode === 'terrain' && (
+                <div className="terrain-brush-bar">
+                  {TERRAIN_TYPES.map((t) => {
+                    const def = TERRAIN_DEFINITIONS[t]
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        className={`terrain-brush-btn ${terrainBrush === t ? 'active' : ''}`}
+                        style={{ borderColor: terrainBrush === t ? '#4f8ef7' : undefined }}
+                        onClick={() => setTerrainBrush(t)}
+                        title={`${def.name}\n${def.tooltipLines.join('\n')}`}
+                      >
+                        <img src={def.imageUrl} alt={def.name} className="terrain-brush-icon" />
+                        <span>{def.icon} {def.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
               {editMode === 'spawn' && form.spawnZones.length > 0 && (
                 <div className="spawn-zone-tabs">
                   {form.spawnZones.map((zone, i) => (
@@ -373,40 +446,71 @@ export default function MapEditorPage() {
                   ))}
                 </div>
               )}
-              <div className="map-editor-grid-wrap">
+              <div className="map-editor-grid-wrap" onContextMenu={(e) => e.preventDefault()} onMouseUp={handleGridMouseUp} onMouseLeave={handleGridMouseUp}>
                 <div
                   className="map-editor-grid"
                   style={{ gridTemplateColumns: `repeat(${form.width}, 36px)` }}
                 >
                   {form.cells.map((cell) => {
+                    const key = `${cell.x},${cell.y}`
                     const inSpawn = isCellInSpawnZone(cell.x, cell.y)
                     const entity = fixedEntityAt(cell.x, cell.y)
                     const isActiveSpawn = editMode === 'spawn' && form.spawnZones[spawnZoneIdx]?.cells.some((c) => c.x === cell.x && c.y === cell.y)
+                    const terrainDef = TERRAIN_DEFINITIONS[cell.terrainType]
+                    const isHovered = hoveredCell === key
+                    const tooltipText = getTerrainTooltip(cell.terrainType)
                     return (
-                      <button
-                        key={`${cell.x}-${cell.y}`}
-                        type="button"
+                      <div
+                        key={key}
                         className={[
                           'map-editor-cell',
                           !cell.enabled ? 'cell-disabled' : '',
+                          cell.terrainType !== 'normal' ? `cell-terrain-${cell.terrainType}` : '',
                           inSpawn ? 'cell-spawn' : '',
                           isActiveSpawn ? 'cell-spawn-active' : '',
                           entity ? (entity.type === 'monster' ? 'cell-monster' : 'cell-treasure') : '',
-                          editMode === 'cell' ? 'mode-cell' : 'mode-spawn',
+                          editMode === 'cell' ? 'mode-cell' : editMode === 'terrain' ? 'mode-terrain' : 'mode-spawn',
+                          terrainDef?.dangerous ? 'cell-terrain-danger' : '',
+                          isHovered ? 'cell-hovered' : '',
                         ].filter(Boolean).join(' ')}
-                        style={{ width: 36, height: 36 }}
+                        style={{
+                          width: 36,
+                          height: 36,
+                          backgroundImage: cell.enabled && cell.terrainType !== 'normal' ? `url(${terrainDef?.imageUrl})` : undefined,
+                          backgroundSize: 'cover',
+                          backgroundPosition: 'center',
+                        }}
                         onClick={() => handleGridClick(cell.x, cell.y)}
-                        title={`(${cell.x},${cell.y})${!cell.enabled ? ' 禁用' : ''}${inSpawn ? ' 部署区' : ''}${entity ? ` ${entity.type}` : ''}`}
+                        onMouseDown={(e) => handleGridMouseDown(cell.x, cell.y, e)}
+                        onMouseEnter={() => handleGridMouseEnter(cell.x, cell.y)}
+                        onMouseLeave={() => setHoveredCell(null)}
+                        title={`(${cell.x},${cell.y}) ${tooltipText}${!cell.enabled ? ' [禁用]' : ''}${inSpawn ? ' [部署区]' : ''}${entity ? ` [${entity.type}]` : ''}`}
                       >
-                        {entity ? (entity.type === 'monster' ? '👹' : '💎') : !cell.enabled ? '✕' : inSpawn ? '◉' : ''}
-                      </button>
+                        {entity ? (entity.type === 'monster' ? '👹' : '💎') : !cell.enabled ? '✕' : cell.terrainType !== 'normal' && terrainDef ? terrainDef.icon : inSpawn ? '◉' : ''}
+                        {cell.terrainType === 'wood_stake' && cell.terrainState?.hp != null && (
+                          <span className="cell-wood-hp">{cell.terrainState.hp}</span>
+                        )}
+                      </div>
                     )
                   })}
                 </div>
               </div>
               <p className="form-hint">
-                {editMode === 'cell' ? '点击格子切换启用/禁用。禁用格子不可移动、不可部署。' : '点击格子将选中格加入/移出当前部署区。'}
+                {editMode === 'cell' ? '点击格子切换启用/禁用。禁用格子不可移动、不可部署。' : editMode === 'terrain' ? '左键刷地形，右键恢复普通地形。可拖动连续刷。' : '点击格子将选中格加入/移出当前部署区。'}
               </p>
+
+              {/* 地形图例 */}
+              <div className="terrain-legend">
+                {TERRAIN_TYPES.map((t) => {
+                  const def = TERRAIN_DEFINITIONS[t]
+                  return (
+                    <span key={t} className="terrain-legend-item" title={def.tooltipLines.join('\n')}>
+                      <span className={`terrain-legend-swatch cell-terrain-${t}`} />
+                      {def.icon} {def.name}
+                    </span>
+                  )
+                })}
+              </div>
             </div>
 
             {/* ── 部署区配置 ── */}
@@ -469,34 +573,6 @@ export default function MapEditorPage() {
                 </div>
               ))}
               <button type="button" className="btn btn-secondary" onClick={addFixedEntity}>+ 添加固定实体</button>
-            </div>
-
-            {/* ── 随机规则 ── */}
-            <div className="form-section">
-              <h4>随机生成规则（RandomRules）</h4>
-              {form.randomRules.map((rule, i) => (
-                <div key={rule.id} className="random-rule-item">
-                  <div className="form-grid">
-                    <div className="form-row">
-                      <label className="form-label">类型</label>
-                      <select className="form-input" value={rule.type} onChange={(e) => updateRandomRule(i, { type: e.target.value as 'monster' | 'treasure' })}>
-                        <option value="monster">👹 怪物</option>
-                        <option value="treasure">💎 宝箱</option>
-                      </select>
-                    </div>
-                    <div className="form-row">
-                      <label className="form-label">数量</label>
-                      <input className="form-input" type="number" min={0} value={rule.count} onChange={(e) => updateRandomRule(i, { count: Number(e.target.value) })} />
-                    </div>
-                    <div className="form-row">
-                      <label className="form-label">模板池（逗号分隔）</label>
-                      <input className="form-input" value={rule.templatePool.join(',')} onChange={(e) => updateRandomRule(i, { templatePool: e.target.value ? e.target.value.split(',').map((s) => s.trim()) : [] })} placeholder="留空=默认" />
-                    </div>
-                  </div>
-                  <button type="button" className="btn btn-danger btn-sm" onClick={() => removeRandomRule(i)}>移除</button>
-                </div>
-              ))}
-              <button type="button" className="btn btn-secondary" onClick={addRandomRule}>+ 添加随机规则</button>
             </div>
 
             {/* ── 操作按钮 ── */}

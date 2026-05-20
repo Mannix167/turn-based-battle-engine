@@ -25,8 +25,11 @@ def handle_defeat(
     if not killer or not killer.isAlive or killer.id == defeated.id:
         return
     if defeated.type == "monster":
-        grant_random_common_skill(killer, rng)
-        state.log.append(f"{killer.name} gained a random common skill")
+        skill = grant_random_common_skill(killer, rng, state.rewardSkillPoolTemplateIds)
+        if skill:
+            state.log.append(f"{killer.name} gained a random common skill")
+        else:
+            state.log.append(f"{killer.name} defeated {defeated.name}, but the reward pool is empty")
         return
     if defeated.type in {"character", "summon"}:
         choices = [
@@ -38,13 +41,23 @@ def handle_defeat(
             state.pendingRewards[killer.id] = PendingReward(killer.id, defeated.id, choices)
             state.log.append(f"{killer.name} can choose a skill reward from {defeated.name}")
         else:
-            grant_random_common_skill(killer, rng)
-            state.log.append(f"{killer.name} gained a random common skill")
+            skill = grant_random_common_skill(killer, rng, state.rewardSkillPoolTemplateIds)
+            if skill:
+                state.log.append(f"{killer.name} gained a random common skill")
+            else:
+                state.log.append(f"{killer.name} defeated {defeated.name}, but the reward pool is empty")
 
 
-def grant_random_common_skill(entity: BattleEntity, rng: Random | None = None) -> SkillInstance:
+def grant_random_common_skill(
+    entity: BattleEntity,
+    rng: Random | None = None,
+    reward_pool_template_ids: list[str] | None = None,
+) -> SkillInstance | None:
     roller = rng or Random()
-    template_id = roller.choice(COMMON_REWARD_TEMPLATE_IDS)
+    pool = reward_pool_template_ids if reward_pool_template_ids is not None else COMMON_REWARD_TEMPLATE_IDS
+    if not pool:
+        return None
+    template_id = roller.choice(pool)
     return grant_skill(entity, template_id, "random_reward")
 
 

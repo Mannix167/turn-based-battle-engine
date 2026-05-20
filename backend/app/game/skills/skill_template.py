@@ -29,6 +29,7 @@ EffectType = Literal[
     "summon",
     "delayed_damage",
     "grant_skill",
+    "change_terrain",
 ]
 
 
@@ -41,6 +42,14 @@ class EffectConfig:
     stat: str | None = None
     buffType: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SkillVisualConfig:
+    visualKey: str | None = None
+    impactColor: str | None = None
+    trailType: str | None = None
+    soundKey: str | None = None
 
 
 @dataclass(frozen=True)
@@ -66,4 +75,6 @@ class SkillTemplate:
     canTargetMonster: bool = True
     canTargetSummon: bool = True
     canTargetTreasure: bool = False
+    canTargetTerrain: bool = False
+    visual: SkillVisualConfig = field(default_factory=SkillVisualConfig)
     effects: list[EffectConfig] = field(default_factory=list)

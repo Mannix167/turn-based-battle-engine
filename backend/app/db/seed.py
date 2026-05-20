@@ -3,7 +3,7 @@ import json
 from sqlalchemy import delete, select
 
 from app.db.database import SessionLocal
-from app.db.models import CharacterRecord, MapRecord, SkillRecord
+from app.db.models import CharacterRecord, MapRecord, MonsterTemplateRecord, SkillRecord
 from app.game.fixtures import SKILL_TEMPLATES
 
 
@@ -45,6 +45,38 @@ def seed_database() -> None:
             ),
         )
         sanitize_character_default_skills(db)
+        ensure_starter_monster(
+            db,
+            MonsterTemplateRecord(
+                id="monster_slime",
+                name="Slime",
+                description="A simple close-range training monster.",
+                max_hp=30,
+                base_attack=8,
+                base_defense=1,
+                attack_range=1,
+                speed=0,
+                crit_rate=0,
+                luck=10,
+                enabled=1,
+            ),
+        )
+        ensure_starter_monster(
+            db,
+            MonsterTemplateRecord(
+                id="monster_archer",
+                name="Goblin Archer",
+                description="A fragile monster that counters from range.",
+                max_hp=24,
+                base_attack=7,
+                base_defense=0,
+                attack_range=3,
+                speed=0,
+                crit_rate=10,
+                luck=20,
+                enabled=1,
+            ),
+        )
         db.commit()
 
 
@@ -57,6 +89,12 @@ def cleanup_contract_test_records(db) -> None:
 
 def ensure_starter_character(db, record: CharacterRecord) -> None:
     if db.get(CharacterRecord, record.id):
+        return
+    db.add(record)
+
+
+def ensure_starter_monster(db, record: MonsterTemplateRecord) -> None:
+    if db.get(MonsterTemplateRecord, record.id):
         return
     db.add(record)
 

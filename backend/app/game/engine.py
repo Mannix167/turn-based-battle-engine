@@ -1,4 +1,5 @@
 from random import Random
+from time import time
 from uuid import uuid4
 
 from app.game.action_points import consume_ap
@@ -6,11 +7,13 @@ from app.game.alliance import are_allies
 from app.game.damage import apply_damage_to_state
 from app.game.distance import manhattan
 from app.game.map_system import move_entity
-from app.game.models import BattleEntity, GameMap, GameState, Position
+from app.game.models import BattleEntity, BattleEvent, GameMap, GameState, Position
 from app.game.reward import choose_kill_reward as choose_reward_core
+from app.game.reward import COMMON_REWARD_TEMPLATE_IDS
 from app.game.reward import handle_defeat
 from app.game.skills.effect_engine import use_skill as use_skill_core
 from app.game.skills.skill_template import SkillTemplate
+from app.game.terrain import damage_destructible_terrain, get_cell, normalize_map_cells
 from app.game.treasure import dig_treasure as dig_treasure_core
 from app.game.turn_queue import advance_to_next_actor, generate_round_queue
 from app.game.victory import update_victory
@@ -21,10 +24,12 @@ class GameRuleError(ValueError):
 
 
 def create_state(game_map: GameMap, entities: list[BattleEntity]) -> GameState:
+    normalize_map_cells(game_map)
     state = GameState(
         gameId=f"game_{uuid4().hex[:12]}",
         gameMap=game_map,
         entities={entity.id: entity for entity in entities},
+        rewardSkillPoolTemplateIds=list(COMMON_REWARD_TEMPLATE_IDS),
     )
     generate_round_queue(state)
     advance_to_next_actor(state)
@@ -37,6 +42,7 @@ def move(state: GameState, entity_id: str, to: Position) -> GameState:
         raise GameRuleError("Entity is rooted and cannot move")
     state.recentDamagedEntityIds = []
     state.recentDamageEvents = []
+    state.recentEvents = []
     move_entity(state, entity_id, to)
     return state
 
@@ -61,12 +67,51 @@ def basic_attack(
 
     state.recentDamagedEntityIds = []
     state.recentDamageEvents = []
+    state.recentEvents = []
     consume_ap(attacker, 1)
     result = apply_damage_to_state(state, attacker, target, rng=rng)
     crit_text = " crit" if result.isCrit else ""
     state.log.append(f"{attacker.name} attacked {target.name} for {result.amount}{crit_text}")
+    state.recentEvents.append(
+        BattleEvent(
+            id=f"event_{uuid4().hex[:10]}",
+            type="basic_attack",
+            timestamp=time(),
+            actorId=attacker.id,
+            targetIds=[target.id],
+            sourcePosition=attacker.position,
+            targetPosition=target.position,
+            targetPositions=[target.position],
+            value=result.amount,
+            visualKey="critical-hit" if result.isCrit else "slash",
+            soundKey="attack_slash",
+            metadata={"isCrit": result.isCrit},
+        )
+    )
     process_recent_defeats_and_counters(state, attacker_id)
     update_victory(state)
+    return state
+
+
+def basic_attack_terrain(
+    state: GameState,
+    attacker_id: str,
+    target_position: Position,
+) -> GameState:
+    assert_current_actor(state, attacker_id)
+    attacker = state.entities[attacker_id]
+    if not attacker.isAlive:
+        raise GameRuleError("Attacker must be alive")
+    if manhattan(attacker.position, target_position) > attacker.attackRange:
+        raise GameRuleError("Target terrain is out of attack range")
+    cell = get_cell(state.gameMap, target_position)
+    if not cell or cell.terrainType != "wood_stake":
+        raise GameRuleError("Only destructible terrain can be attacked")
+    state.recentDamagedEntityIds = []
+    state.recentDamageEvents = []
+    state.recentEvents = []
+    consume_ap(attacker, 1)
+    damage_destructible_terrain(state, attacker, target_position, attacker.currentAttack)
     return state
 
 

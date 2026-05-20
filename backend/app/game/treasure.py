@@ -33,8 +33,11 @@ def dig_treasure(
     treasure.isDug = True
     roller = rng or Random()
     if roller.random() < entity.luck / 100:
-        grant_random_common_skill(entity, roller)
-        state.log.append(f"{entity.name} dug {treasure.name} and found a skill")
+        skill = grant_random_common_skill(entity, roller, state.rewardSkillPoolTemplateIds)
+        if skill:
+            state.log.append(f"{entity.name} dug {treasure.name} and found a skill")
+        else:
+            state.log.append(f"{entity.name} dug {treasure.name}, but the reward pool is empty")
         return
     if roller.random() < 0.5:
         actual = apply_fixed_damage_to_state(state, entity, entity, failure_damage, allow_self=True)

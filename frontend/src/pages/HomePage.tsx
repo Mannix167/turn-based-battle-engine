@@ -46,6 +46,12 @@ export default function HomePage() {
           >
             技能管理
           </button>
+          <button
+            className="btn btn-secondary btn-large"
+            onClick={() => navigate('/monsters')}
+          >
+            小怪管理
+          </button>
         </div>
       </div>
 

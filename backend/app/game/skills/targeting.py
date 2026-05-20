@@ -3,6 +3,7 @@ from app.game.distance import manhattan
 from app.game.map_system import is_valid_cell, occupied_entity_at
 from app.game.models import BattleEntity, Direction, GameState, Position
 from app.game.skills.skill_template import SkillTemplate
+from app.game.terrain import blocks_line_of_effect
 
 
 class TargetingError(ValueError):
@@ -93,8 +94,8 @@ def targets_in_line(
     targets: list[BattleEntity] = []
     for step in range(1, template.range + 1):
         pos = Position(caster.x + dx * step, caster.y + dy * step)
-        if not is_valid_cell(state.gameMap, pos):
-            continue
+        if not is_valid_cell(state.gameMap, pos) or blocks_line_of_effect(state.gameMap, pos):
+            break
         entity = occupied_entity_at(state, pos)
         if entity and entity.isAlive:
             try:

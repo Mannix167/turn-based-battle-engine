@@ -1,20 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getGame, moveEntity, basicAttack, useSkill, digTreasure, endAction, chooseKillReward } from '../api/game'
+import { getGame, moveEntity, basicAttack, attackTerrain, useSkill, digTreasure, endAction, chooseKillReward } from '../api/game'
 import { getMap } from '../api/maps'
 import { listCharacters } from '../api/characters'
 import { listAllSkillTemplates } from '../api/skills'
-import GridBoard from '../components/GridBoard'
 import EntityPanel from '../components/EntityPanel'
 import BattleLog from '../components/BattleLog'
 import KillRewardModal from '../components/KillRewardModal'
-import type { GameStateRead, BattleEntity, SkillInstance, Direction } from '../types/game'
-import type { MapRead } from '../types/map'
+import FullscreenMapViewport from '../components/battle/FullscreenMapViewport'
+import { AudioManager } from '../audio/AudioManager'
+import { fallbackSoundForEvent, type SoundKey } from '../audio/soundRegistry'
+import type { GameStateRead, BattleEntity, SkillInstance, Direction, Position } from '../types/game'
+import type { MapRead, TerrainType } from '../types/map'
 import type { CharacterRead } from '../types/character'
 import type { SkillTemplateRead } from '../types/skill'
+import { TERRAIN_DEFINITIONS } from '../data/terrain'
 
-type InteractionMode = 'idle' | 'moving' | 'attacking' | 'skill-target' | 'skill-direction'
+type InteractionMode = 'idle' | 'moving' | 'attacking' | 'skill-target' | 'skill-direction' | 'dig-target'
 type TokenVisualEffect = { type: 'hit' | 'critical' | 'heal' | 'die' | 'cast' | 'move'; amount?: number }
+type BattleToast = { text: string; kind: 'success' | 'error' | 'info' }
 
 // 简单曼哈顿距离范围高亮（仅做视觉提示，不判断合法性）
 function buildRangeCells(cx: number, cy: number, range: number, mapW: number, mapH: number): Set<string> {
@@ -51,11 +56,14 @@ export default function BattlePage() {
   const [inspectedEntityId, setInspectedEntityId] = useState<string | null>(null)
   const [pendingFirstTargetId, setPendingFirstTargetId] = useState<string | null>(null)
   const [highlightCells, setHighlightCells] = useState<Set<string>>(new Set())
-  const [highlightMode, setHighlightMode] = useState<'move' | 'attack' | 'skill' | null>(null)
+  const [highlightMode, setHighlightMode] = useState<'move' | 'attack' | 'skill' | 'dig' | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [showDigModal, setShowDigModal] = useState(false)
+  const [battleToast, setBattleToast] = useState<BattleToast | null>(null)
+  const [audioMuted, setAudioMuted] = useState(AudioManager.getMuted())
   const [tokenEffects, setTokenEffects] = useState<Record<string, TokenVisualEffect>>({})
   const previousCurrentEntityId = useRef<string | null>(null)
+  const playedEventIds = useRef<Set<string>>(new Set())
+  const toastTimerRef = useRef<number | null>(null)
 
   // tokenImageUrl 映射（从 character 数据中取）
   const [tokenImageUrls, setTokenImageUrls] = useState<Record<string, string | null>>({})
@@ -109,11 +117,21 @@ export default function BattlePage() {
   useEffect(() => {
     const currentId = gameState?.currentEntityId ?? null
     if (currentId && previousCurrentEntityId.current !== currentId) {
-      setInspectedEntityId(currentId)
-      setSelectedEntityId(currentId)
+      setInspectedEntityId(null)
+      setSelectedEntityId(null)
     }
     previousCurrentEntityId.current = currentId
   }, [gameState?.currentEntityId])
+
+  useEffect(() => {
+    if (!gameState) return
+    gameState.recentEvents.forEach((event) => {
+      if (playedEventIds.current.has(event.id)) return
+      playedEventIds.current.add(event.id)
+      const sound = (event.soundKey as SoundKey | undefined) ?? fallbackSoundForEvent(event.type, event.terrainType)
+      if (sound) AudioManager.play(sound)
+    })
+  }, [gameState?.recentEvents, gameState])
 
   // ——— 错误处理 ———
   const handleApiError = (err: unknown) => {
@@ -121,8 +139,17 @@ export default function BattlePage() {
       err && typeof err === 'object' && 'response' in err
         ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
         : undefined
-    setErrorMessage(detail ?? '操作失败，请重试')
-    setTimeout(() => setErrorMessage(null), 3000)
+    showBattleToast(detail ?? '操作失败，请重试', 'error')
+  }
+
+  const showBattleToast = (text: string, kind: BattleToast['kind'] = 'info') => {
+    setErrorMessage(kind === 'error' ? text : null)
+    setBattleToast({ text, kind })
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = window.setTimeout(() => {
+      setBattleToast(null)
+      if (kind === 'error') setErrorMessage(null)
+    }, 3200)
   }
 
   const updateState = (newState: GameStateRead, options?: { keepMode?: 'moving' | 'attacking' }) => {
@@ -160,6 +187,17 @@ export default function BattlePage() {
       window.setTimeout(() => setTokenEffects({}), 760)
     }
 
+    const previousLogLength = gameState?.log.length ?? 0
+    const newLogLines = newState.log.slice(previousLogLength)
+    const latestLog = newLogLines.length > 0
+      ? newLogLines[newLogLines.length - 1]
+      : newState.log[newState.log.length - 1]
+    if (latestLog) {
+      const hasDamage = newState.recentDamageEvents.length > 0
+      const hasCrit = newState.recentDamageEvents.some((event) => event.isCrit)
+      showBattleToast(hasCrit ? `${latestLog} 暴击！` : latestLog, hasDamage ? 'success' : 'info')
+    }
+
     setGameState(newState)
     setPendingFirstTargetId(null)
     const nextCurrent = newState.entities.find((e) => e.id === newState.currentEntityId) ?? null
@@ -168,7 +206,6 @@ export default function BattlePage() {
       setInteractionMode('moving')
       setSelectedSkill(null)
       setSelectedEntityId(nextCurrent.id)
-      setInspectedEntityId(nextCurrent.id)
       setHighlightCells(buildRangeCells(nextCurrent.x, nextCurrent.y, totalAp, mapData.width, mapData.height))
       setHighlightMode('move')
       return
@@ -191,8 +228,18 @@ export default function BattlePage() {
     : null
 
   const inspectedEntity = gameState
-    ? gameState.entities.find((e) => e.id === (inspectedEntityId ?? gameState.currentEntityId)) ?? currentEntity
+    ? (inspectedEntityId ? gameState.entities.find((e) => e.id === inspectedEntityId) ?? null : null)
     : null
+
+  // 获取指定位置的地形类型（优先从 GameState.map，回退到 MapTemplate）
+  const getCellTerrain = useCallback((x: number, y: number): TerrainType => {
+    if (gameState?.map?.cells) {
+      const gameCell = gameState.map.cells.find((c) => c.x === x && c.y === y)
+      if (gameCell) return gameCell.terrainType
+    }
+    const mapCell = mapData?.cells?.find((c) => c.x === x && c.y === y)
+    return mapCell?.terrainType ?? 'normal'
+  }, [gameState, mapData])
 
   const currentSkills = useMemo(() => {
     if (!currentEntity) return []
@@ -203,7 +250,8 @@ export default function BattlePage() {
 
   const actionHint = useMemo(() => {
     if (interactionMode === 'moving') return '选择蓝色格子完成移动'
-    if (interactionMode === 'attacking') return '点击红色范围内的目标进行普通攻击'
+    if (interactionMode === 'attacking') return '点击红色范围内的目标进行攻击（含可破坏地形）'
+    if (interactionMode === 'dig-target') return '点击金色标记的藏宝点进行挖宝'
     if (interactionMode === 'skill-direction') return '选择技能释放方向'
     if (interactionMode === 'skill-target' && selectedSkill) {
       const targetType = templates[selectedSkill.templateId]?.targetType
@@ -221,7 +269,6 @@ export default function BattlePage() {
     if (!currentEntity || !mapData) return
     setInteractionMode('moving')
     setSelectedEntityId(currentEntity.id)
-    setInspectedEntityId(currentEntity.id)
     const tempAp = currentEntity.temporaryAP
     const permAp = currentEntity.permanentAP
     const totalAp = tempAp + permAp
@@ -237,6 +284,15 @@ export default function BattlePage() {
         const newState = await moveEntity(gameId, currentEntity.id, { x, y })
         updateState(newState, { keepMode: 'moving' })
       } catch (err) { handleApiError(err) }
+    } else if (interactionMode === 'attacking') {
+      // 攻击模式点击空格子可能是攻击木桩
+      const cellTerrain = getCellTerrain(x, y)
+      if (cellTerrain === 'wood_stake') {
+        try {
+          const newState = await attackTerrain(gameId, currentEntity.id, { x, y })
+          updateState(newState, { keepMode: 'attacking' })
+        } catch (err) { handleApiError(err) }
+      }
     } else if (interactionMode === 'skill-target' && selectedSkill) {
       const tmpl = templates[selectedSkill.templateId]
       if (tmpl?.targetType === 'emptyCell') {
@@ -249,6 +305,20 @@ export default function BattlePage() {
           updateState(newState)
         } catch (err) { handleApiError(err) }
       }
+    } else if (interactionMode === 'dig-target') {
+      const treasure = gameState?.treasures.find((item) => !item.isDug && item.x === x && item.y === y)
+      if (!treasure) {
+        showBattleToast('该格子不是可挖藏宝点', 'error')
+        return
+      }
+      await handleDigTreasure(treasure.id)
+    } else if (interactionMode === 'idle') {
+      const distance = Math.abs(currentEntity.x - x) + Math.abs(currentEntity.y - y)
+      if (distance !== 1) return
+      try {
+        const newState = await moveEntity(gameId, currentEntity.id, { x, y })
+        updateState(newState)
+      } catch (err) { handleApiError(err) }
     }
   }
 
@@ -257,14 +327,18 @@ export default function BattlePage() {
     if (!currentEntity || !mapData) return
     setInteractionMode('attacking')
     setSelectedEntityId(currentEntity.id)
-    setInspectedEntityId(currentEntity.id)
     setHighlightCells(buildRangeCells(currentEntity.x, currentEntity.y, currentEntity.attackRange, mapData.width, mapData.height))
     setHighlightMode('attack')
     setErrorMessage(null)
   }
 
   const handleEntityClick = async (entityId: string) => {
-    if (!gameId || !currentEntity) return
+    if (!gameId) return
+    if (!currentEntity || gameState?.isFinished) {
+      setSelectedEntityId(entityId)
+      setInspectedEntityId(entityId)
+      return
+    }
     if (interactionMode === 'attacking') {
       try {
         const newState = await basicAttack(gameId, currentEntity.id, entityId)
@@ -285,11 +359,11 @@ export default function BattlePage() {
         if (!pendingFirstTargetId) {
           setPendingFirstTargetId(entityId)
           setSelectedEntityId(entityId)
-          setErrorMessage('请选择第二个目标')
+          showBattleToast('请选择第二个目标', 'info')
           return
         }
         if (pendingFirstTargetId === entityId) {
-          setErrorMessage('第二个目标不能与第一个目标相同')
+          showBattleToast('第二个目标不能与第一个目标相同', 'error')
           return
         }
         try {
@@ -304,9 +378,14 @@ export default function BattlePage() {
       }
     } else {
       // 查看模式：选中目标实体
-      setSelectedEntityId(entityId === selectedEntityId ? null : entityId)
-      setInspectedEntityId(entityId)
+      toggleEntityInspection(entityId)
     }
+  }
+
+  const toggleEntityInspection = (entityId: string) => {
+    const nextSelectedId = entityId === inspectedEntityId ? null : entityId
+    setSelectedEntityId(nextSelectedId)
+    setInspectedEntityId(nextSelectedId)
   }
 
   // ——— 操作：技能 ———
@@ -314,7 +393,6 @@ export default function BattlePage() {
     const tmpl = templates[instance.templateId]
     if (!tmpl || !currentEntity || !mapData) return
     setSelectedSkill(instance)
-    setInspectedEntityId(currentEntity.id)
     setErrorMessage(null)
 
     if (tmpl.targetType === 'self') {
@@ -361,18 +439,22 @@ export default function BattlePage() {
 
   // ——— 操作：挖宝 ———
   const handleDigClick = () => {
-    if (!gameState || !currentEntity) return
-    const nearbyTreasures = gameState.treasures.filter((t) => !t.isDug)
+    if (!gameState || !currentEntity || !mapData) return
+    const nearbyTreasures = gameState.treasures.filter(
+      (t) => !t.isDug && Math.abs(t.x - currentEntity.x) + Math.abs(t.y - currentEntity.y) <= currentEntity.attackRange
+    )
     if (nearbyTreasures.length === 0) {
-      setErrorMessage('附近没有可挖的宝藏')
+      showBattleToast('附近没有可挖的宝藏', 'error')
       return
     }
-    setShowDigModal(true)
+    setInteractionMode('dig-target')
+    setSelectedEntityId(currentEntity.id)
+    setHighlightCells(new Set(nearbyTreasures.map((t) => `${t.x},${t.y}`)))
+    setHighlightMode('dig')
   }
 
   const handleDigTreasure = async (treasureId: string) => {
     if (!gameId || !currentEntity) return
-    setShowDigModal(false)
     try {
       const newState = await digTreasure(gameId, currentEntity.id, treasureId)
       updateState(newState)
@@ -454,218 +536,196 @@ export default function BattlePage() {
   }
 
   const currentActor = currentEntity
-  const panelEntity = inspectedEntity ?? currentActor
+  const panelEntity = inspectedEntity
   const portraitUrl = panelEntity ? portraitImageUrls[panelEntity.id] : null
 
   return (
-    <div className="battle-page">
-      {/* ===== 顶部栏 ===== */}
-      <div className="battle-topbar">
-        <div className="topbar-round">第 {gameState.roundNumber} 轮</div>
-        <div className="topbar-current">
-          {gameState.isFinished ? (
-            <span className="topbar-finished">游戏结束</span>
-          ) : currentActor ? (
-            <>
-              <span className="topbar-actor-label">当前行动：</span>
-              <span className="topbar-actor-name">{currentActor.name}</span>
-            </>
-          ) : (
-            <span>处理中...</span>
-          )}
+    <div className="battle-page fullscreen-battle-page">
+      <FullscreenMapViewport
+        gameState={gameState}
+        mapData={mapData}
+        interactionMode={interactionMode}
+        selectedEntityId={selectedEntityId}
+        selectedSkillInstanceId={selectedSkill?.instanceId ?? null}
+        highlightMode={highlightMode}
+        highlightCells={highlightCells}
+        tokenEffects={tokenEffects}
+        tokenImageUrls={tokenImageUrls}
+        onCellClick={handleCellClick}
+        onEntityClick={handleEntityClick}
+        onCancel={cancelInteraction}
+      />
+
+      <motion.header className="battle-hud-top" initial={{ y: -18, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>
+        <button className="hud-chip hud-exit" onClick={() => navigate('/')}>退出</button>
+        <div className="hud-chip">第 {gameState.roundNumber} 轮</div>
+        <div className="hud-current">
+          <span>当前行动</span>
+          <strong>{gameState.isFinished ? '游戏结束' : currentActor?.name ?? '处理中'}</strong>
+          {currentActor && <b>临时 AP {currentActor.temporaryAP} / 永久 AP {currentActor.permanentAP}</b>}
         </div>
-        <div className="topbar-right">
-          {gameState.isFinished && gameState.winnerGroup.length > 0 && (
-            <span className="topbar-winner">
-              胜者：{gameState.winnerGroup.join(', ')}
-            </span>
-          )}
-          <button className="btn btn-secondary btn-sm" onClick={() => navigate('/')}>
-            退出
-          </button>
+        <div className="hud-queue">
+          {gameState.actionQueue.slice(0, 5).map((id) => (
+            <button key={id} className={id === gameState.currentEntityId ? 'active' : ''} onClick={() => toggleEntityInspection(id)}>
+              {gameState.entities.find((entity) => entity.id === id)?.name.charAt(0) ?? '?'}
+            </button>
+          ))}
         </div>
-      </div>
+        <button
+          className="hud-chip"
+          onClick={() => {
+            const next = !audioMuted
+            AudioManager.setMuted(next)
+            setAudioMuted(next)
+          }}
+        >
+          {audioMuted ? '静音' : '音效'}
+        </button>
+      </motion.header>
 
-      {/* ===== 主体 ===== */}
-      <div className="battle-body">
-        {/* 左侧：棋盘 */}
-        <div className="battle-board-area">
-          {/* 方向技能选择覆盖层 */}
-          {interactionMode === 'skill-direction' && (
-            <div className="direction-overlay">
-              <div className="direction-prompt">选择技能方向</div>
-              <div className="direction-buttons">
-                {(['up', 'down', 'left', 'right'] as Direction[]).map((dir) => {
-                  const arrows: Record<Direction, string> = { up: '↑', down: '↓', left: '←', right: '→' }
-                  const labels: Record<Direction, string> = { up: '上', down: '下', left: '左', right: '右' }
-                  return (
-                    <button
-                      key={dir}
-                      className="btn btn-secondary direction-btn"
-                      onClick={() => handleDirectionSkill(dir)}
-                    >
-                      {arrows[dir]} {labels[dir]}
-                    </button>
-                  )
-                })}
-              </div>
-              <button className="btn btn-danger btn-sm" onClick={cancelInteraction}>
-                取消
-              </button>
-            </div>
-          )}
+      <AnimatePresence>
+        {battleToast && (
+          <motion.div
+            className={`battle-toast battle-toast-${battleToast.kind}`}
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+          >
+            {battleToast.text}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          <GridBoard
-            gameState={gameState}
-            mapData={mapData}
-            interactionMode={interactionMode}
-            selectedEntityId={selectedEntityId}
-            highlightMode={highlightMode}
-            highlightCells={highlightCells}
-            tokenEffects={tokenEffects}
-            tokenImageUrls={tokenImageUrls}
-            onCellClick={handleCellClick}
-            onEntityClick={handleEntityClick}
-          />
+      <AnimatePresence>
+        {panelEntity && (
+          <motion.aside
+            className="floating-entity-panel"
+            initial={{ opacity: 0, x: -24, scale: 0.98 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -24, scale: 0.98 }}
+          >
+            <button
+              type="button"
+              className="floating-panel-close"
+              onClick={() => {
+                setInspectedEntityId(null)
+                setSelectedEntityId(null)
+              }}
+              aria-label="关闭属性栏"
+            >
+              ×
+            </button>
+            <EntityPanel
+              entity={panelEntity}
+              portraitImageUrl={portraitUrl}
+              templates={templates}
+              selectedSkillId={selectedSkill?.instanceId ?? null}
+              onSkillClick={handleSkillClick}
+              onBasicAttack={handleAttackMode}
+              onDigTreasure={handleDigClick}
+              onEndAction={handleEndAction}
+              interactionMode={interactionMode}
+              errorMessage={null}
+              canAct={!!panelEntity && panelEntity.id === currentActor?.id}
+              panelTitle={panelEntity && panelEntity.id !== currentActor?.id ? '查看单位' : '当前行动单位'}
+            />
+          </motion.aside>
+        )}
+      </AnimatePresence>
 
-          {!gameState.isFinished && currentActor && (
-            <div className="battle-command-dock" aria-label="战斗指挥">
-              <div className="command-context">
-                <span className="command-label">当前指令</span>
-                <strong>{actionHint}</strong>
-              </div>
-              <div className="command-primary">
-                <button
-                  className={`command-btn ${interactionMode === 'moving' ? 'active move' : ''}`}
-                  onClick={interactionMode === 'moving' ? cancelInteraction : handleMoveMode}
-                  title="快捷键 M"
-                >
-                  <span className="command-icon command-icon-move" />
-                  <span>{interactionMode === 'moving' ? '取消移动' : '移动'}</span>
-                </button>
-                <button
-                  className={`command-btn ${interactionMode === 'attacking' ? 'active attack' : ''}`}
-                  onClick={interactionMode === 'attacking' ? cancelInteraction : handleAttackMode}
-                  title="快捷键 A"
-                >
-                  <span className="command-icon command-icon-attack" />
-                  <span>攻击</span>
-                </button>
-                <button className="command-btn" onClick={handleDigClick}>
-                  <span className="command-icon command-icon-treasure" />
-                  <span>挖宝</span>
-                </button>
-                <button className="command-btn danger" onClick={handleEndAction} title="快捷键 Space / Enter">
-                  <span className="command-icon command-icon-end" />
-                  <span>结束</span>
-                </button>
-              </div>
-              {currentSkills.length > 0 && (
-                <div className="command-skills" aria-label="技能快捷栏">
-                  {currentSkills.map(({ instance, template }, index) => (
-                    <button
-                      key={instance.instanceId}
-                      className={`quick-skill-btn ${selectedSkill?.instanceId === instance.instanceId ? 'selected' : ''} ${instance.isUsed ? 'used' : ''}`}
-                      onClick={() => handleSkillClick(instance)}
-                      title={`${template.name} | 行动 ${template.cost} | 范围 ${template.range}`}
-                    >
-                      <span className="quick-skill-index">{index + 1}</span>
-                      <span className="quick-skill-text">
-                        <span className="quick-skill-name">{template.name}</span>
-                        <span className="quick-skill-desc">{template.description || '暂无技能描述'}</span>
-                      </span>
-                      <span className="quick-skill-cost">{template.cost}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+      {!gameState.isFinished && currentActor && (
+        <motion.div className="floating-command-bar" initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }}>
+          <div className="command-context">
+            <span>当前指令</span>
+            <strong>{actionHint}</strong>
+          </div>
+          <div className="command-primary">
+            <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.96 }} className={`command-btn ${interactionMode === 'moving' ? 'active move' : ''}`} onClick={interactionMode === 'moving' ? cancelInteraction : handleMoveMode}>
+              <span className="command-icon command-icon-move" />
+              <span>移动</span>
+            </motion.button>
+            <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.96 }} className={`command-btn ${interactionMode === 'attacking' ? 'active attack' : ''}`} onClick={interactionMode === 'attacking' ? cancelInteraction : handleAttackMode}>
+              <span className="command-icon command-icon-attack" />
+              <span>攻击</span>
+            </motion.button>
+            <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.96 }} className={`command-btn ${interactionMode === 'dig-target' ? 'active dig' : ''}`} onClick={interactionMode === 'dig-target' ? cancelInteraction : handleDigClick}>
+              <span className="command-icon command-icon-treasure" />
+              <span>挖宝</span>
+            </motion.button>
+            <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.96 }} className="command-btn danger" onClick={handleEndAction}>
+              <span className="command-icon command-icon-end" />
+              <span>结束</span>
+            </motion.button>
+          </div>
+        </motion.div>
+      )}
 
-          {/* 行动提示与取消 */}
-          {interactionMode !== 'idle' && interactionMode !== 'skill-direction' && (
-            <div className="board-interaction-hint">
-              <span>{actionHint}</span>
-              <button className="btn btn-danger btn-sm" onClick={cancelInteraction}>
-                取消
-              </button>
-            </div>
-          )}
-        </div>
+      {currentSkills.length > 0 && currentActor && (
+        <motion.div className="floating-skill-panel" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }}>
+          <div className="skill-panel-title">技能</div>
+          <AnimatePresence>
+            {currentSkills.map(({ instance, template }, index) => (
+              <motion.button
+                key={instance.instanceId}
+                layout
+                exit={{ opacity: 0, scale: 0.88 }}
+                whileHover={{ x: -3 }}
+                whileTap={{ scale: 0.97 }}
+                className={`floating-skill-card ${selectedSkill?.instanceId === instance.instanceId ? 'selected' : ''} ${instance.isUsed ? 'used' : ''}`}
+                onMouseEnter={() => AudioManager.play('ui_hover', { volume: 0.35 })}
+                onClick={() => { AudioManager.play('ui_click'); handleSkillClick(instance) }}
+              >
+                <span className="skill-hotkey">{index + 1}</span>
+                <span className="skill-icon">{template.iconUrl ? <img src={template.iconUrl} alt={template.name} /> : '技'}</span>
+                <span className="skill-copy">
+                  <strong>{template.name}</strong>
+                  <small>{template.description || '暂无技能描述'}</small>
+                </span>
+                <span className="skill-cost">{template.cost} AP</span>
+              </motion.button>
+            ))}
+          </AnimatePresence>
+        </motion.div>
+      )}
 
-        {/* 右侧：角色面板 */}
-        <div className="battle-panel-area">
-          <div className="battle-roster" aria-label="单位列表">
-            {gameState.entities.map((entity) => {
-              const hpPct = Math.max(0, Math.min(100, (entity.currentHp / entity.maxHp) * 100))
+      {interactionMode === 'skill-direction' && (
+        <motion.div className="floating-direction-pad" initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }}>
+          <strong>选择方向</strong>
+          <div className="direction-buttons">
+            {(['up', 'down', 'left', 'right'] as Direction[]).map((dir) => {
+              const labels: Record<Direction, string> = { up: '上', down: '下', left: '左', right: '右' }
               return (
-                <button
-                  key={entity.id}
-                  type="button"
-                  className={`roster-avatar ${inspectedEntityId === entity.id ? 'selected' : ''} ${gameState.currentEntityId === entity.id ? 'current' : ''} ${!entity.isAlive ? 'dead' : ''}`}
-                  onClick={() => {
-                    setInspectedEntityId(entity.id)
-                    setSelectedEntityId(entity.id)
-                  }}
-                  title={`${entity.name} HP ${entity.currentHp}/${entity.maxHp}`}
-                >
-                  {portraitImageUrls[entity.id] ? (
-                    <img src={portraitImageUrls[entity.id] ?? ''} alt={entity.name} />
-                  ) : (
-                    <span>{entity.name.charAt(0).toUpperCase()}</span>
-                  )}
-                  {gameState.currentEntityId === entity.id && <b>行动</b>}
-                  <i style={{ width: `${hpPct}%` }} />
+                <button key={dir} className="btn btn-secondary direction-btn" onClick={() => handleDirectionSkill(dir)}>
+                  {labels[dir]}
                 </button>
               )
             })}
           </div>
-          <EntityPanel
-            entity={panelEntity}
-            portraitImageUrl={portraitUrl}
-            templates={templates}
-            selectedSkillId={selectedSkill?.instanceId ?? null}
-            onSkillClick={handleSkillClick}
-            onBasicAttack={handleAttackMode}
-            onDigTreasure={handleDigClick}
-            onEndAction={handleEndAction}
-            interactionMode={interactionMode}
-            errorMessage={errorMessage}
-            canAct={!!panelEntity && panelEntity.id === currentActor?.id}
-            panelTitle={panelEntity && panelEntity.id !== currentActor?.id ? '查看单位' : '当前行动单位'}
-          />
-        </div>
-      </div>
-
-      {/* ===== 底部日志 ===== */}
-      <div className="battle-log-area">
-        <BattleLog logs={gameState.log} />
-      </div>
-
-      {/* ===== 挖宝弹窗 ===== */}
-      {showDigModal && (
-        <div className="modal-overlay">
-          <div className="modal-box">
-            <div className="modal-title">选择挖宝目标</div>
-            <div className="dig-treasure-list">
-              {gameState.treasures
-                .filter((t) => !t.isDug)
-                .map((t) => (
-                  <button
-                    key={t.id}
-                    className="btn btn-secondary dig-treasure-item"
-                    onClick={() => handleDigTreasure(t.id)}
-                  >
-                    {t.name} ({t.x}, {t.y})
-                  </button>
-                ))}
-            </div>
-            <button className="btn btn-danger btn-sm" onClick={() => setShowDigModal(false)}>
-              取消
-            </button>
-          </div>
-        </div>
+          <button className="btn btn-danger btn-sm" onClick={cancelInteraction}>取消</button>
+        </motion.div>
       )}
+
+      <motion.div className="battle-roster-strip" initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }}>
+        {gameState.entities.map((entity) => {
+          const hpPct = Math.max(0, Math.min(100, (entity.currentHp / entity.maxHp) * 100))
+          return (
+            <button
+              key={entity.id}
+              type="button"
+              className={`roster-avatar ${inspectedEntityId === entity.id ? 'selected' : ''} ${gameState.currentEntityId === entity.id ? 'current' : ''} ${!entity.isAlive ? 'dead' : ''}`}
+              onClick={() => toggleEntityInspection(entity.id)}
+              title={`${entity.name} HP ${entity.currentHp}/${entity.maxHp}`}
+            >
+              {portraitImageUrls[entity.id] ? <img src={portraitImageUrls[entity.id] ?? ''} alt={entity.name} /> : <span>{entity.name.charAt(0).toUpperCase()}</span>}
+              <i style={{ width: `${hpPct}%` }} />
+            </button>
+          )
+        })}
+      </motion.div>
+
+      <motion.div className="battle-log-mini" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
+        <BattleLog logs={gameState.log.slice(-8)} />
+      </motion.div>
 
       {/* ===== 击杀奖励弹窗 ===== */}
       {Object.keys(gameState.pendingRewards).length > 0 && (

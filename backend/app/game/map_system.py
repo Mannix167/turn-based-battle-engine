@@ -1,6 +1,7 @@
 from app.game.action_points import consume_ap
 from app.game.distance import manhattan
 from app.game.models import BattleEntity, GameMap, GameState, Position
+from app.game.terrain import is_cell_enabled, is_walkable, movement_leave_cost
 
 
 class MapRuleError(ValueError):
@@ -11,7 +12,7 @@ def is_valid_cell(game_map: GameMap, pos: Position) -> bool:
     in_bounds = 0 <= pos.x < game_map.width and 0 <= pos.y < game_map.height
     if not in_bounds:
         return False
-    return not game_map.validCells or pos in game_map.validCells
+    return is_cell_enabled(game_map, pos)
 
 
 def occupied_entity_at(state: GameState, pos: Position) -> BattleEntity | None:
@@ -39,6 +40,8 @@ def is_occupied(state: GameState, pos: Position) -> bool:
 def assert_empty_valid_cell(state: GameState, pos: Position) -> None:
     if not is_valid_cell(state.gameMap, pos):
         raise MapRuleError("Target cell is outside the playable map")
+    if not is_walkable(state.gameMap, pos):
+        raise MapRuleError("Target cell terrain is not walkable")
     if is_occupied(state, pos):
         raise MapRuleError("Target cell is occupied")
 
@@ -53,7 +56,7 @@ def move_entity(state: GameState, entity_id: str, to: Position) -> None:
     if distance != 1:
         raise MapRuleError("Only orthogonal one-cell movement is supported")
     assert_empty_valid_cell(state, to)
-    consume_ap(entity, 1)
+    consume_ap(entity, movement_leave_cost(state.gameMap, entity.position))
     entity.x = to.x
     entity.y = to.y
     state.log.append(f"{entity.name} moved to ({to.x}, {to.y})")

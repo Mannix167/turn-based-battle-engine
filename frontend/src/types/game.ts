@@ -76,26 +76,74 @@ export interface DamageEvent {
   linkedFromEntityId?: string | null
 }
 
+export interface GameMapRead {
+  id: string
+  name: string
+  width: number
+  height: number
+  cells: import('./map').MapCell[]
+}
+
+export interface BattleEvent {
+  id: string
+  type: string
+  timestamp: number
+  actorId?: string | null
+  targetIds?: string[]
+  sourcePosition?: Position | null
+  targetPosition?: Position | null
+  targetPositions?: Position[]
+  skillTemplateId?: string | null
+  terrainType?: string | null
+  oldTerrainType?: string | null
+  newTerrainType?: string | null
+  value?: number | null
+  visualKey?: string | null
+  soundKey?: string | null
+  metadata?: Record<string, unknown>
+}
+
 export interface GameStateRead {
   gameId: string
   mapId: string
+  map: GameMapRead | null
   roundNumber: number
   currentEntityId: string | null
   actionQueue: string[]
   entities: BattleEntity[]
   treasures: TreasureEntity[]
   pendingRewards: Record<string, PendingReward>
+  rewardSkillPoolTemplateIds: string[]
+  startSeed: string | null
   recentDamageEvents: DamageEvent[]
+  recentEvents: BattleEvent[]
   isFinished: boolean
   winnerGroup: string[]
   log: string[]
 }
 
 export interface StartGameRequest {
-  mapId: string
-  entityIds: string[]
-  positions: Record<string, Position>
+  mapId?: string
+  mapTemplateId?: string
+  entityIds?: string[]
+  selectedCharacterIds?: string[]
+  positions?: Record<string, Position>
+  characterPlacements?: { characterId: string; position: Position }[]
   selectedSkillTemplateIds?: Record<string, string[]>
+  selectedCommonSkillIdsByCharacterId?: Record<string, string[]>
+  randomMonsterCount?: number
+  randomTreasureCount?: number
+  monsterTemplatePoolIds?: string[]
+  rewardSkillPoolTemplateIds?: string[]
+  startSeed?: string | null
+}
+
+export interface PreviewStartResponse {
+  startSeed: string
+  previewMonsters: { id: string; monsterTemplateId: string; position: Position }[]
+  previewTreasures: { id: string; position: Position }[]
+  rewardSkillPoolTemplateIds: string[]
+  warnings: string[]
 }
 
 export interface UseSkillPayload {
@@ -105,4 +153,56 @@ export interface UseSkillPayload {
   secondTargetEntityId?: string
   targetCell?: Position
   direction?: Direction
+}
+
+export type ActionPreviewType = 'attack' | 'skill' | 'move' | 'dig'
+
+export interface ActionPreviewRequest {
+  gameId: string
+  actorId: string
+  actionType: ActionPreviewType
+  targetPosition?: Position
+  targetEntityId?: string
+  skillInstanceId?: string
+  direction?: Direction
+  selectedTargetIds?: string[]
+}
+
+export interface ActionPreviewApCost {
+  temporaryAp: number
+  permanentAp: number
+  total: number
+}
+
+export interface DamagePreviewItem {
+  targetEntityId: string
+  targetName: string
+  damageType: 'normal' | 'true' | 'percent_max_hp' | 'terrain'
+  finalDamage: number
+  baseDamage?: number | null
+  defenseReduction?: number | null
+  canCrit: boolean
+  critRate?: number | null
+  critDamagePreview?: number | null
+  willKill: boolean
+}
+
+export interface ActionPreviewResponse {
+  valid: boolean
+  reason?: string | null
+  actionType: ActionPreviewType
+  apCost?: ActionPreviewApCost | null
+  damagePreviews: DamagePreviewItem[]
+  healPreviews: { targetEntityId: string; targetName: string; amount: number }[]
+  buffPreviews: { targetEntityId: string; targetName: string; buffType: string; duration?: number | null }[]
+  terrainPreviews: { position: Position; terrainType?: string | null; value?: number | null }[]
+  counterAttackPreview?: DamagePreviewItem | null
+  digPreview?: {
+    successRate: number
+    failNoEffectRate: number
+    failDamageRate: number
+    failDamageValue: number
+  } | null
+  killPreview?: { willKill: boolean; killedEntityIds: string[] } | null
+  affectedPositions: Position[]
 }

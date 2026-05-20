@@ -1,9 +1,22 @@
+export type TerrainType = 'normal' | 'obstacle' | 'lava' | 'swamp' | 'wood_stake' | 'ice' | 'thunderstorm'
+
+export interface TerrainState {
+  originalTerrainType?: TerrainType | null
+  duration?: number | 'permanent' | null
+  createdBySkillId?: string | null
+  createdByEntityId?: string | null
+  hp?: number | null
+  maxHp?: number | null
+  defense?: number | null
+}
+
 export interface MapCell {
   x: number
   y: number
   enabled: boolean
-  terrainType: 'normal'
+  terrainType: TerrainType
   tileImageUrl: string | null
+  terrainState?: TerrainState | null
 }
 
 export interface SpawnZone {

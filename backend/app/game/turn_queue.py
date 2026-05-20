@@ -2,6 +2,7 @@ from app.game.action_points import begin_action, end_action
 from app.game.alliance import tick_temporary_alliances
 from app.game.models import BattleEntity, GameState
 from app.game.status.status_engine import trigger_action_start_status
+from app.game.terrain import tick_terrain_durations, trigger_action_start_terrain
 
 
 class TurnQueueError(ValueError):
@@ -32,17 +33,24 @@ def advance_to_next_actor(state: GameState) -> str | None:
         entity = state.entities[entity_id]
         if not entity.isAlive:
             continue
-        begin_action(entity)
+        state.recentDamageEvents = []
+        state.recentDamagedEntityIds = []
+        state.recentEvents = []
+        if trigger_action_start_terrain(state, entity):
+            state.log.append(f"{entity.name} was defeated by terrain")
+            continue
         if trigger_action_start_status(state, entity):
             end_action(entity)
             state.log.append(f"{entity.name} skips action")
             continue
+        begin_action(entity)
         state.currentEntityId = entity_id
         state.log.append(f"{entity.name} begins action")
         return entity_id
 
     state.roundNumber += 1
     tick_temporary_alliances(state)
+    tick_terrain_durations(state)
     generate_round_queue(state)
     if not state.actionQueue:
         state.currentEntityId = None

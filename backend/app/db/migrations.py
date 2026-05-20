@@ -8,6 +8,8 @@ SKILL_COLUMNS: dict[str, str] = {
     "can_target_monster": "INTEGER DEFAULT 1",
     "can_target_summon": "INTEGER DEFAULT 1",
     "can_target_treasure": "INTEGER DEFAULT 0",
+    "can_target_terrain": "INTEGER DEFAULT 0",
+    "visual_json": "TEXT DEFAULT '{}'",
 }
 
 

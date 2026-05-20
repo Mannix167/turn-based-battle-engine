@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.common import Position
+from app.schemas.map import MapCell
 
 
 class SkillInstanceSchema(BaseModel):
@@ -52,6 +53,9 @@ class BattleEntitySchema(BaseModel):
     critRate: int
     luck: int
     joinOrder: int
+    templateId: str | None = None
+    tokenImageUrl: str | None = None
+    portraitImageUrl: str | None = None
     isAlive: bool
     activeRound: int = 1
     extraTurnNextRound: int = 0
@@ -73,10 +77,43 @@ class CreateGameRequest(BaseModel):
 
 
 class StartGameRequest(BaseModel):
-    mapId: str = "map_default"
-    entityIds: list[str] = Field(min_length=1)
-    positions: dict[str, Position]
+    mapId: str | None = None
+    mapTemplateId: str | None = None
+    entityIds: list[str] | None = None
+    selectedCharacterIds: list[str] | None = None
+    positions: dict[str, Position] = {}
+    characterPlacements: list["CharacterPlacement"] = []
     selectedSkillTemplateIds: dict[str, list[str]] = {}
+    selectedCommonSkillIdsByCharacterId: dict[str, list[str]] = {}
+    randomMonsterCount: int = Field(default=0, ge=0)
+    randomTreasureCount: int = Field(default=0, ge=0)
+    monsterTemplatePoolIds: list[str] = []
+    rewardSkillPoolTemplateIds: list[str] = []
+    startSeed: str | None = None
+
+
+class CharacterPlacement(BaseModel):
+    characterId: str
+    position: Position
+
+
+class PreviewMonster(BaseModel):
+    id: str
+    monsterTemplateId: str
+    position: Position
+
+
+class PreviewTreasure(BaseModel):
+    id: str
+    position: Position
+
+
+class PreviewStartResponse(BaseModel):
+    startSeed: str
+    previewMonsters: list[PreviewMonster]
+    previewTreasures: list[PreviewTreasure]
+    rewardSkillPoolTemplateIds: list[str]
+    warnings: list[str] = []
 
 
 class MoveRequest(BaseModel):
@@ -87,6 +124,11 @@ class MoveRequest(BaseModel):
 class BasicAttackRequest(BaseModel):
     attackerId: str
     targetId: str
+
+
+class AttackTerrainRequest(BaseModel):
+    attackerId: str
+    targetCell: Position
 
 
 class UseSkillRequest(BaseModel):
@@ -128,16 +170,123 @@ class DamageEventSchema(BaseModel):
     linkedFromEntityId: str | None = None
 
 
+class BattleEventSchema(BaseModel):
+    id: str
+    type: str
+    timestamp: float
+    actorId: str | None = None
+    targetIds: list[str] = []
+    sourcePosition: Position | None = None
+    targetPosition: Position | None = None
+    targetPositions: list[Position] = []
+    skillTemplateId: str | None = None
+    terrainType: str | None = None
+    oldTerrainType: str | None = None
+    newTerrainType: str | None = None
+    value: int | None = None
+    visualKey: str | None = None
+    soundKey: str | None = None
+    metadata: dict = {}
+
+
+class ActionPreviewRequest(BaseModel):
+    gameId: str
+    actorId: str
+    actionType: Literal["attack", "skill", "move", "dig"]
+    targetPosition: Position | None = None
+    targetEntityId: str | None = None
+    skillInstanceId: str | None = None
+    direction: Literal["up", "down", "left", "right"] | None = None
+    selectedTargetIds: list[str] = []
+
+
+class ActionPreviewApCost(BaseModel):
+    temporaryAp: int = 0
+    permanentAp: int = 0
+    total: int = 0
+
+
+class DamagePreviewItem(BaseModel):
+    targetEntityId: str
+    targetName: str
+    damageType: Literal["normal", "true", "percent_max_hp", "terrain"] = "normal"
+    finalDamage: int
+    baseDamage: int | None = None
+    defenseReduction: int | None = None
+    canCrit: bool = False
+    critRate: int | None = None
+    critDamagePreview: int | None = None
+    willKill: bool = False
+
+
+class HealPreviewItem(BaseModel):
+    targetEntityId: str
+    targetName: str
+    amount: int
+
+
+class BuffPreviewItem(BaseModel):
+    targetEntityId: str
+    targetName: str
+    buffType: str
+    duration: int | None = None
+
+
+class TerrainPreviewItem(BaseModel):
+    position: Position
+    terrainType: str | None = None
+    value: int | None = None
+
+
+class DigPreview(BaseModel):
+    successRate: int
+    failNoEffectRate: int
+    failDamageRate: int
+    failDamageValue: int
+
+
+class KillPreview(BaseModel):
+    willKill: bool
+    killedEntityIds: list[str] = []
+
+
+class ActionPreviewResponse(BaseModel):
+    valid: bool
+    reason: str | None = None
+    actionType: Literal["attack", "skill", "move", "dig"]
+    apCost: ActionPreviewApCost | None = None
+    damagePreviews: list[DamagePreviewItem] = []
+    healPreviews: list[HealPreviewItem] = []
+    buffPreviews: list[BuffPreviewItem] = []
+    terrainPreviews: list[TerrainPreviewItem] = []
+    counterAttackPreview: DamagePreviewItem | None = None
+    digPreview: DigPreview | None = None
+    killPreview: KillPreview | None = None
+    affectedPositions: list[Position] = []
+
+
+class GameMapRead(BaseModel):
+    id: str
+    name: str
+    width: int
+    height: int
+    cells: list[MapCell] = []
+
+
 class GameStateRead(BaseModel):
     gameId: str
     mapId: str
+    map: GameMapRead | None = None
     roundNumber: int
     currentEntityId: str | None
     actionQueue: list[str]
     entities: list[BattleEntitySchema]
     treasures: list[TreasureEntitySchema] = []
     pendingRewards: dict[str, PendingRewardSchema] = {}
+    rewardSkillPoolTemplateIds: list[str] = []
+    startSeed: str | None = None
     recentDamageEvents: list[DamageEventSchema] = []
+    recentEvents: list[BattleEventSchema] = []
     isFinished: bool = False
     winnerGroup: list[str] = []
     log: list[str] = []

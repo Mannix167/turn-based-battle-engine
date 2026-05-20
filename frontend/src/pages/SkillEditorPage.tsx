@@ -28,6 +28,7 @@ const TARGET_CHECKBOXES = [
   { key: 'canTargetMonster', label: '小怪' },
   { key: 'canTargetSummon', label: '召唤物' },
   { key: 'canTargetTreasure', label: '藏宝点' },
+  { key: 'canTargetTerrain', label: '地形' },
 ] as const
 
 /* 效果类型是否需要 value 字段 */
@@ -78,6 +79,8 @@ const DEFAULT_FORM: SkillTemplateWrite = {
   canTargetMonster: true,
   canTargetSummon: true,
   canTargetTreasure: false,
+  canTargetTerrain: false,
+  visual: {},
   effects: [{ type: 'damage', value: 10, metadata: {} }],
 }
 
@@ -103,6 +106,8 @@ function normalizeSkill(skill: SkillTemplateRead): SkillTemplateRead {
     canTargetMonster: skill.canTargetMonster ?? true,
     canTargetSummon: skill.canTargetSummon ?? true,
     canTargetTreasure: skill.canTargetTreasure ?? false,
+    canTargetTerrain: skill.canTargetTerrain ?? false,
+    visual: skill.visual ?? {},
     effects: (skill.effects ?? []).map((e) => ({
       ...e,
       metadata: e.metadata ?? {},

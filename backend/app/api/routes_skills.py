@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import SkillRecord
 from app.game.fixtures import SKILL_TEMPLATES
-from app.game.skills.skill_template import EffectConfig, SkillTemplate
+from app.game.skills.skill_template import EffectConfig, SkillTemplate, SkillVisualConfig
 from app.schemas.skill import SkillTemplateCreate, SkillTemplateRead, SkillTemplateUpdate
 
 
@@ -71,6 +71,8 @@ def record_to_template(record: SkillRecord) -> SkillTemplate:
         canTargetMonster=bool(record.can_target_monster),
         canTargetSummon=bool(record.can_target_summon),
         canTargetTreasure=bool(record.can_target_treasure),
+        canTargetTerrain=bool(record.can_target_terrain),
+        visual=SkillVisualConfig(**json.loads(record.visual_json or "{}")),
         effects=[normalize_effect(effect) for effect in json.loads(record.effects_json or "[]")],
     )
 
@@ -140,6 +142,8 @@ def validate_skill_payload(payload: SkillTemplateCreate | SkillTemplateUpdate) -
             errors.append("modify_stat requires metadata.stat")
         if effect.type == "summon" and payload.targetType != "emptyCell":
             errors.append("summon effect requires emptyCell targetType")
+        if effect.type == "change_terrain" and not effect.metadata.get("terrainType"):
+            errors.append("change_terrain requires metadata.terrainType")
     return errors
 
 
@@ -165,6 +169,8 @@ def apply_payload(record: SkillRecord, payload: SkillTemplateCreate | SkillTempl
     record.can_target_monster = 1 if payload.canTargetMonster else 0
     record.can_target_summon = 1 if payload.canTargetSummon else 0
     record.can_target_treasure = 1 if payload.canTargetTreasure else 0
+    record.can_target_terrain = 1 if payload.canTargetTerrain else 0
+    record.visual_json = json.dumps(payload.visual.model_dump())
     record.effects_json = json.dumps([dump_effect(effect) for effect in payload.effects])
     record.updated_at = stamp
     if not record.created_at:

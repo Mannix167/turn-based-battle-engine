@@ -44,6 +44,7 @@ def skill(
     can_empty: bool = False,
     can_monster: bool = True,
     can_summon: bool = True,
+    can_terrain: bool = False,
     affect_self_damage: bool = False,
 ) -> SkillTemplate:
     return SkillTemplate(
@@ -67,6 +68,7 @@ def skill(
         canTargetEmptyCell=can_empty,
         canTargetMonster=can_monster,
         canTargetSummon=can_summon,
+        canTargetTerrain=can_terrain,
         effects=effects,
     )
 

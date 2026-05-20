@@ -1,5 +1,5 @@
 import client from './client'
-import type { GameStateRead, StartGameRequest, UseSkillPayload, Position } from '../types/game'
+import type { GameStateRead, StartGameRequest, UseSkillPayload, Position, PreviewStartResponse, ActionPreviewRequest, ActionPreviewResponse } from '../types/game'
 
 export async function createGame(mapId: string): Promise<GameStateRead> {
   const res = await client.post<GameStateRead>('/api/game/create', { mapId })
@@ -16,6 +16,16 @@ export async function startGame(payload: StartGameRequest): Promise<GameStateRea
   return res.data
 }
 
+export async function previewStart(payload: StartGameRequest): Promise<PreviewStartResponse> {
+  const res = await client.post<PreviewStartResponse>('/api/game/preview-start', payload)
+  return res.data
+}
+
+export async function getActionPreview(payload: ActionPreviewRequest): Promise<ActionPreviewResponse> {
+  const res = await client.post<ActionPreviewResponse>('/api/game/action-preview', payload)
+  return res.data
+}
+
 export async function moveEntity(gameId: string, entityId: string, to: Position): Promise<GameStateRead> {
   const res = await client.post<GameStateRead>(`/api/game/${gameId}/move`, { entityId, to })
   return res.data
@@ -23,6 +33,11 @@ export async function moveEntity(gameId: string, entityId: string, to: Position)
 
 export async function basicAttack(gameId: string, attackerId: string, targetId: string): Promise<GameStateRead> {
   const res = await client.post<GameStateRead>(`/api/game/${gameId}/basic-attack`, { attackerId, targetId })
+  return res.data
+}
+
+export async function attackTerrain(gameId: string, attackerId: string, targetCell: Position): Promise<GameStateRead> {
+  const res = await client.post<GameStateRead>(`/api/game/${gameId}/attack-terrain`, { attackerId, targetCell })
   return res.data
 }
 

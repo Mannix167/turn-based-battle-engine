@@ -123,12 +123,15 @@ export default function EntityToken({ entity, isCurrentActor, isSelected, visual
 
       {/* 血条 */}
       {battle && battle.isAlive && (
-        <div className="token-hp-bar">
-          <div
-            className="token-hp-fill"
-            style={{ width: `${hpPct}%`, background: hpColor }}
-          />
-        </div>
+        <>
+          <div className="token-hp-bar">
+            <div
+              className="token-hp-fill"
+              style={{ width: `${hpPct}%`, background: hpColor }}
+            />
+          </div>
+          <div className="token-hp-text">{battle.currentHp} / {battle.maxHp}</div>
+        </>
       )}
     </div>
   )
