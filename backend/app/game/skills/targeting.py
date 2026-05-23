@@ -60,10 +60,12 @@ def validate_entity_target(
     caster: BattleEntity,
     target: BattleEntity,
     template: SkillTemplate,
+    *,
+    check_range: bool = True,
 ) -> None:
     if not target.isAlive:
         raise TargetingError("Target must be alive")
-    if manhattan(caster.position, target.position) > template.range:
+    if check_range and manhattan(caster.position, target.position) > template.range:
         raise TargetingError("Target is out of skill range")
     if target.type == "monster" and not template.canTargetMonster:
         raise TargetingError("Skill cannot target monsters")
@@ -71,8 +73,6 @@ def validate_entity_target(
         raise TargetingError("Skill cannot target summons")
     if caster.id == target.id and not template.canTargetSelf:
         raise TargetingError("Skill cannot target self")
-    if target.type in {"monster", "summon"}:
-        return
     if caster.id != target.id and are_allies(state, caster, target) and not template.canTargetAlly:
         raise TargetingError("Skill cannot target allies")
     if caster.id != target.id and not are_allies(state, caster, target) and not template.canTargetEnemy:

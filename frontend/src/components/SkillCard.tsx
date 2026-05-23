@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import type { SkillInstance } from '../types/game'
 import type { SkillTemplateRead } from '../types/skill'
+import { RARITY_COLORS, RARITY_LABELS } from '../types/skill'
 
 const EFFECT_ICONS: Record<string, string> = {
   damage: '伤',
@@ -41,6 +42,7 @@ interface Props {
 export default function SkillCard({ instance, template, isSelected, onClick }: Props) {
   const [showTooltip, setShowTooltip] = useState(false)
   const icon = getSkillIcon(template)
+  const quantity = Math.max(0, instance.quantity ?? 1)
 
   const targetLabel: Record<string, string> = {
     single: '单体',
@@ -68,15 +70,22 @@ export default function SkillCard({ instance, template, isSelected, onClick }: P
         {icon.startsWith('/') || icon.startsWith('http') ? <img src={icon} alt={template.name} /> : icon}
       </div>
       <div className="skill-card-body">
-        <div className="skill-card-name">{template.name}</div>
+        <div className="skill-card-title-row">
+          <div className="skill-card-name">{template.name}</div>
+          <span className="rarity-pill" style={{ borderColor: RARITY_COLORS[template.rarity], color: RARITY_COLORS[template.rarity] }}>
+            {RARITY_LABELS[template.rarity]}
+          </span>
+          {quantity > 1 && <span className="skill-stack-badge">x{quantity}</span>}
+        </div>
         <div className="skill-card-desc">{template.description || '暂无技能描述'}</div>
         <div className="skill-card-meta">
           <span className="skill-cost">行动:{template.cost}</span>
+          <span className="skill-cost">点数:{template.skillPointCost}</span>
           <span className="skill-range">范围:{template.range}</span>
           <span className="skill-target">{targetLabel[template.targetType] ?? template.targetType}</span>
           {areaLabel[template.areaType] && <span className="skill-area">{areaLabel[template.areaType]}</span>}
         </div>
-        <div className="skill-once-tag">一次性</div>
+        <div className="skill-once-tag">剩余 {quantity} / {instance.maxQuantity ?? 3}</div>
       </div>
 
       {showTooltip && (
@@ -84,9 +93,9 @@ export default function SkillCard({ instance, template, isSelected, onClick }: P
           <div className="skill-tooltip-name">{template.name}</div>
           <div className="skill-tooltip-desc">{template.description || '暂无描述'}</div>
           <div className="skill-tooltip-meta">
-            消耗:{template.cost} | 范围:{template.range} | {targetLabel[template.targetType]}
+            消耗:{template.cost} | 技能点:{template.skillPointCost} | 范围:{template.range} | {targetLabel[template.targetType]}
           </div>
-          <div className="skill-tooltip-src">来源:{instance.source}</div>
+          <div className="skill-tooltip-src">来源:{instance.source} | 数量:{quantity}/{instance.maxQuantity ?? 3}</div>
         </div>
       )}
     </div>

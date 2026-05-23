@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.character import Rarity
+
 
 class MonsterTemplateBase(BaseModel):
     name: str = Field(min_length=1)
@@ -11,9 +13,14 @@ class MonsterTemplateBase(BaseModel):
     speed: int = Field(default=0, ge=0)
     critRate: int = Field(default=0, ge=0, le=100)
     luck: int = Field(default=0, ge=0, le=100)
+    tempApPerTurn: int = Field(default=1, ge=0)
+    rarity: Rarity = "common"
     tokenImageUrl: str | None = None
     portraitImageUrl: str | None = None
     enabled: bool = True
+    canSpawnAsMonster: bool = True
+    canBeSummoned: bool = False
+    summonSkillTemplateIds: list[str] = []
 
 
 class MonsterTemplateCreate(MonsterTemplateBase):

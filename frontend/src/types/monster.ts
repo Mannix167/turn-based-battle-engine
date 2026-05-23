@@ -9,9 +9,14 @@ export interface MonsterTemplateRead {
   speed: number
   critRate: number
   luck: number
+  tempApPerTurn: number
+  rarity: import('./skill').Rarity
   tokenImageUrl: string | null
   portraitImageUrl: string | null
   enabled: boolean
+  canSpawnAsMonster: boolean
+  canBeSummoned: boolean
+  summonSkillTemplateIds: string[]
   createdAt: string
   updatedAt: string
 }

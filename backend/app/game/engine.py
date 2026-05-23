@@ -13,6 +13,7 @@ from app.game.reward import COMMON_REWARD_TEMPLATE_IDS
 from app.game.reward import handle_defeat
 from app.game.skills.effect_engine import use_skill as use_skill_core
 from app.game.skills.skill_template import SkillTemplate
+from app.game.summons import defeat_owned_summons
 from app.game.terrain import damage_destructible_terrain, get_cell, normalize_map_cells
 from app.game.treasure import dig_treasure as dig_treasure_core
 from app.game.turn_queue import advance_to_next_actor, generate_round_queue
@@ -179,6 +180,7 @@ def counterattack_if_needed(
     state.log.append(f"{monster.name} counterattacked {attacker.name} for {result.amount}")
     if not attacker.isAlive:
         handle_defeat(state, attacker, monster, rng)
+        defeat_owned_summons(state, attacker)
 
 
 def process_recent_defeats_and_counters(state: GameState, source_id: str) -> None:
@@ -195,6 +197,7 @@ def process_recent_defeats_and_counters(state: GameState, source_id: str) -> Non
         if not target.isAlive:
             state.log.append(f"{target.name} died")
             handle_defeat(state, target, source)
+            defeat_owned_summons(state, target)
         elif target.type == "monster" and target.id not in linked_damage_ids:
             counterattack_if_needed(state, target, source)
     state.recentDamagedEntityIds = []

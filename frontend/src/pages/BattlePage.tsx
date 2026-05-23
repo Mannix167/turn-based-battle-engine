@@ -15,6 +15,7 @@ import type { GameStateRead, BattleEntity, SkillInstance, Direction, Position } 
 import type { MapRead, TerrainType } from '../types/map'
 import type { CharacterRead } from '../types/character'
 import type { SkillTemplateRead } from '../types/skill'
+import { RARITY_COLORS, RARITY_LABELS } from '../types/skill'
 import { TERRAIN_DEFINITIONS } from '../data/terrain'
 
 type InteractionMode = 'idle' | 'moving' | 'attacking' | 'skill-target' | 'skill-direction' | 'dig-target'
@@ -96,8 +97,8 @@ export default function BattlePage() {
         portraitUrls[c.id] = c.portraitImageUrl
       })
       state.entities.forEach((e) => {
-        if (!tokenUrls[e.id]) tokenUrls[e.id] = null
-        if (!portraitUrls[e.id]) portraitUrls[e.id] = null
+        if (!tokenUrls[e.id]) tokenUrls[e.id] = e.tokenImageUrl ?? null
+        if (!portraitUrls[e.id]) portraitUrls[e.id] = e.portraitImageUrl ?? null
       })
       setTokenImageUrls(tokenUrls)
       setPortraitImageUrls(portraitUrls)
@@ -538,6 +539,8 @@ export default function BattlePage() {
   const currentActor = currentEntity
   const panelEntity = inspectedEntity
   const portraitUrl = panelEntity ? portraitImageUrls[panelEntity.id] : null
+  const panelFaction = panelEntity ? gameState.factions.find((faction) => faction.id === panelEntity.factionId) ?? null : null
+  const panelOwnerName = panelEntity?.ownerId ? gameState.entities.find((entity) => entity.id === panelEntity.ownerId)?.name ?? panelEntity.ownerId : null
 
   return (
     <div className="battle-page fullscreen-battle-page">
@@ -565,11 +568,15 @@ export default function BattlePage() {
           {currentActor && <b>临时 AP {currentActor.temporaryAP} / 永久 AP {currentActor.permanentAP}</b>}
         </div>
         <div className="hud-queue">
-          {gameState.actionQueue.slice(0, 5).map((id) => (
-            <button key={id} className={id === gameState.currentEntityId ? 'active' : ''} onClick={() => toggleEntityInspection(id)}>
-              {gameState.entities.find((entity) => entity.id === id)?.name.charAt(0) ?? '?'}
-            </button>
-          ))}
+          {gameState.actionQueue.slice(0, 5).map((id) => {
+            const entity = gameState.entities.find((item) => item.id === id)
+            const faction = gameState.factions.find((item) => item.id === entity?.factionId)
+            return (
+              <button key={id} className={id === gameState.currentEntityId ? 'active' : ''} style={{ borderColor: faction?.color }} onClick={() => toggleEntityInspection(id)}>
+                {entity?.name.charAt(0) ?? '?'}
+              </button>
+            )
+          })}
         </div>
         <button
           className="hud-chip"
@@ -628,6 +635,8 @@ export default function BattlePage() {
               errorMessage={null}
               canAct={!!panelEntity && panelEntity.id === currentActor?.id}
               panelTitle={panelEntity && panelEntity.id !== currentActor?.id ? '查看单位' : '当前行动单位'}
+              faction={panelFaction}
+              ownerName={panelOwnerName}
             />
           </motion.aside>
         )}
@@ -678,7 +687,11 @@ export default function BattlePage() {
                 <span className="skill-hotkey">{index + 1}</span>
                 <span className="skill-icon">{template.iconUrl ? <img src={template.iconUrl} alt={template.name} /> : '技'}</span>
                 <span className="skill-copy">
-                  <strong>{template.name}</strong>
+                  <strong>
+                    {template.name}
+                    <span className="rarity-dot" style={{ backgroundColor: RARITY_COLORS[template.rarity] }} title={RARITY_LABELS[template.rarity]} />
+                    {(instance.quantity ?? 1) > 1 && <span className="skill-stack-inline">x{instance.quantity}</span>}
+                  </strong>
                   <small>{template.description || '暂无技能描述'}</small>
                 </span>
                 <span className="skill-cost">{template.cost} AP</span>
@@ -708,13 +721,15 @@ export default function BattlePage() {
       <motion.div className="battle-roster-strip" initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }}>
         {gameState.entities.map((entity) => {
           const hpPct = Math.max(0, Math.min(100, (entity.currentHp / entity.maxHp) * 100))
+          const faction = gameState.factions.find((item) => item.id === entity.factionId)
           return (
             <button
               key={entity.id}
               type="button"
               className={`roster-avatar ${inspectedEntityId === entity.id ? 'selected' : ''} ${gameState.currentEntityId === entity.id ? 'current' : ''} ${!entity.isAlive ? 'dead' : ''}`}
+              style={{ borderColor: faction?.color }}
               onClick={() => toggleEntityInspection(entity.id)}
-              title={`${entity.name} HP ${entity.currentHp}/${entity.maxHp}`}
+              title={`${entity.name}${faction ? ` / ${faction.name}` : ''} HP ${entity.currentHp}/${entity.maxHp}`}
             >
               {portraitImageUrls[entity.id] ? <img src={portraitImageUrls[entity.id] ?? ''} alt={entity.name} /> : <span>{entity.name.charAt(0).toUpperCase()}</span>}
               <i style={{ width: `${hpPct}%` }} />

@@ -9,10 +9,10 @@ from app.game.alliance import add_alliance, remove_alliance
 from app.game.damage import apply_damage_to_state, apply_fixed_damage_to_state
 from app.game.distance import manhattan
 from app.game.map_system import assert_empty_valid_cell, is_occupied, is_valid_cell, occupied_treasure_at
-from app.game.models import BattleEntity, BattleEvent, Direction, GameState, Position, StatusEffect
+from app.game.models import BattleEntity, BattleEvent, Direction, GameState, Position, SkillInstance, StatusEffect
 from app.game.reward import grant_skill
 from app.game.skills.skill_template import EffectConfig, SkillTemplate
-from app.game.skills.targeting import resolve_targets
+from app.game.skills.targeting import TargetingError, resolve_targets, validate_entity_target
 from app.game.terrain import TERRAIN_DEFINITIONS, blocks_line_of_effect, change_terrain
 
 
@@ -72,11 +72,13 @@ class EffectEngine:
         state.recentEvents = []
         targets = resolve_targets(state, caster, template, target_id, second_target_id, target_position, direction)
         targets = expand_area_targets(state, caster, template, targets, target_position)
+        for effect in template.effects:
+            if effect.type not in self.handlers:
+                raise EffectEngineError(f"Effect type is not implemented: {effect.type}")
+        consume_ap(caster, template.cost)
         append_skill_cast_event(state, caster, template, targets, target_position, direction)
         for effect in template.effects:
             handler = self.handlers.get(effect.type)
-            if not handler:
-                raise EffectEngineError(f"Effect type is not implemented: {effect.type}")
             effect = effect_with_metadata_fields(effect)
             if effect.type == "damage" and template.affectSelfDamage:
                 metadata = {**effect.metadata, "affectSelfDamage": True}
@@ -433,29 +435,72 @@ class EffectEngine:
             raise EffectEngineError("summon requires target position")
         assert_empty_valid_cell(state, self.target_position)
         metadata = effect.metadata
+        template_data = metadata.get("creatureTemplate")
+        summon_skills = metadata.get("summonSkillTemplateIds", [])
+        if isinstance(template_data, dict):
+            max_hp = int(template_data.get("maxHp", metadata.get("maxHp", 30)))
+            base_attack = int(template_data.get("baseAttack", metadata.get("baseAttack", 8)))
+            base_defense = int(template_data.get("baseDefense", metadata.get("baseDefense", 1)))
+            attack_range = int(template_data.get("attackRange", metadata.get("attackRange", 1)))
+            temp_ap_per_turn = int(template_data.get("tempApPerTurn", metadata.get("tempApPerTurn", 1)))
+            speed = int(template_data.get("speed", metadata.get("speed", 5)))
+            crit_rate = int(template_data.get("critRate", metadata.get("critRate", 0)))
+            luck = int(template_data.get("luck", metadata.get("luck", 0)))
+            name = str(template_data.get("name", metadata.get("name", f"{caster.name}'s Summon")))
+            token_image_url = template_data.get("tokenImageUrl")
+            portrait_image_url = template_data.get("portraitImageUrl")
+            template_id = template_data.get("id") or metadata.get("creatureTemplateId")
+            summon_skills = template_data.get("summonSkillTemplateIds", summon_skills)
+        else:
+            max_hp = metadata.get("maxHp", 30)
+            base_attack = metadata.get("baseAttack", 8)
+            base_defense = metadata.get("baseDefense", 1)
+            attack_range = metadata.get("attackRange", 1)
+            temp_ap_per_turn = metadata.get("tempApPerTurn", 1)
+            speed = metadata.get("speed", 5)
+            crit_rate = metadata.get("critRate", 0)
+            luck = metadata.get("luck", 0)
+            name = metadata.get("name", f"{caster.name}'s Summon")
+            token_image_url = metadata.get("tokenImageUrl")
+            portrait_image_url = metadata.get("portraitImageUrl")
+            template_id = metadata.get("creatureTemplateId")
         join_order = max((entity.joinOrder for entity in state.entities.values()), default=0) + 1
         summon = BattleEntity(
             id=f"summon_{uuid4().hex[:10]}",
             type="summon",
-            name=metadata.get("name", f"{caster.name}'s Summon"),
+            templateId=template_id,
+            name=name,
             ownerId=caster.id,
             controllerId=caster.controllerId or caster.id,
+            factionId=caster.factionId,
             x=self.target_position.x,
             y=self.target_position.y,
-            maxHp=metadata.get("maxHp", 30),
-            currentHp=metadata.get("maxHp", 30),
-            baseAttack=metadata.get("baseAttack", 8),
-            currentAttack=metadata.get("baseAttack", 8),
-            baseDefense=metadata.get("baseDefense", 1),
-            currentDefense=metadata.get("baseDefense", 1),
-            attackRange=metadata.get("attackRange", 1),
-            tempApPerTurn=metadata.get("tempApPerTurn", 1),
-            speed=metadata.get("speed", 5),
-            critRate=metadata.get("critRate", 0),
-            luck=metadata.get("luck", 0),
+            maxHp=max_hp,
+            currentHp=max_hp,
+            baseAttack=base_attack,
+            currentAttack=base_attack,
+            baseDefense=base_defense,
+            currentDefense=base_defense,
+            attackRange=attack_range,
+            tempApPerTurn=temp_ap_per_turn,
+            speed=speed,
+            critRate=crit_rate,
+            luck=luck,
             joinOrder=join_order,
+            tokenImageUrl=token_image_url,
+            portraitImageUrl=portrait_image_url,
             activeRound=state.roundNumber + 1,
         )
+        for offset, template_id in enumerate(summon_skills or [], start=1):
+            summon.skillInstances.append(
+                SkillInstance(
+                    instanceId=f"{summon.id}_{template_id}_summon_{offset}",
+                    templateId=template_id,
+                    source="summon",
+                    sourceTypes=["summon"],
+                    maxQuantity=state.maxSkillStackQuantity,
+                )
+            )
         state.entities[summon.id] = summon
         state.log.append(f"{caster.name} summoned {summon.name}")
 
@@ -470,7 +515,13 @@ class EffectEngine:
         if not template_id:
             raise EffectEngineError("grant_skill requires metadata.templateId")
         for target in targets:
-            grant_skill(target, template_id, "random_reward")
+            grant_skill(
+                target,
+                template_id,
+                "random_reward",
+                max_quantity=state.maxSkillStackQuantity,
+                log=state.log,
+            )
 
     def _grant_random_common_skill(
         self,
@@ -482,7 +533,14 @@ class EffectEngine:
         from app.game.reward import grant_random_common_skill
 
         for target in targets:
-            grant_random_common_skill(target)
+            grant_random_common_skill(
+                target,
+                reward_pool_template_ids=state.rewardSkillPoolTemplateIds,
+                template_rarities=state.rewardSkillTemplateRarities,
+                rarity_weights=state.rarityDropWeights,
+                max_quantity=state.maxSkillStackQuantity,
+                log=state.log,
+            )
 
     def _change_terrain(
         self,
@@ -532,9 +590,12 @@ def use_skill(
         raise EffectEngineError("Skill instance not found")
     if instance.templateId != template.id:
         raise EffectEngineError("Skill instance does not match template")
-    consume_ap(caster, template.cost)
+    if instance.quantity <= 0:
+        raise EffectEngineError("Skill stack is empty")
     EffectEngine().apply(state, caster, template, target_id, second_target_id, target_position, direction)
-    caster.skillInstances = [skill for skill in caster.skillInstances if skill.instanceId != skill_instance_id]
+    instance.quantity -= 1
+    if instance.quantity <= 0:
+        caster.skillInstances = [skill for skill in caster.skillInstances if skill.instanceId != skill_instance_id]
     state.log.append(f"{caster.name} used {template.name}")
 
 
@@ -722,7 +783,13 @@ def expand_area_targets(
             in_area = manhattan(center, entity.position) <= radius
         elif template.areaType == "cross":
             in_area = (dx == 0 and dy <= radius) or (dy == 0 and dx <= radius)
-        if in_area:
+        if not in_area:
+            continue
+        try:
+            validate_entity_target(state, caster, entity, template, check_range=False)
+        except TargetingError:
+            continue
+        else:
             expanded.append(entity)
     return expanded
 

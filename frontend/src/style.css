@@ -1276,6 +1276,20 @@ ul {
   z-index: 2;
 }
 
+.token-summon-mark {
+  position: absolute;
+  right: -4px;
+  top: 10px;
+  z-index: 4;
+  border: 1px solid rgba(250, 250, 249, 0.5);
+  border-radius: 999px;
+  padding: 1px 4px;
+  background: rgba(28, 25, 23, 0.92);
+  color: #d8b4fe;
+  font-size: 10px;
+  font-weight: 900;
+}
+
 /* Buff 图标 */
 .token-buffs {
   position: absolute;
@@ -1406,6 +1420,24 @@ ul {
   border-radius: 10px;
   margin-top: 4px;
   font-weight: 600;
+}
+
+.panel-faction-tag,
+.panel-owner-tag {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 3px 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 900;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.panel-owner-tag {
+  border-color: rgba(216, 180, 254, 0.46);
+  color: #d8b4fe;
 }
 
 .type-character { background: #1a3a7a; color: #7eb8f7; }
@@ -1567,6 +1599,47 @@ ul {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.skill-card-title-row,
+.skill-editor-list-name strong,
+.skill-copy strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rarity-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  background: rgba(0, 0, 0, 0.22);
+  white-space: nowrap;
+}
+
+.skill-stack-badge,
+.skill-stack-inline {
+  border: 1px solid rgba(245, 196, 81, 0.38);
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: #f5c451;
+  font-size: 11px;
+  font-weight: 900;
+  background: rgba(245, 196, 81, 0.12);
+}
+
+.rarity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
 }
 
 .skill-card-desc {
@@ -4705,6 +4778,17 @@ ul {
   gap: 12px;
 }
 
+.loadout-filter-row,
+.skill-filter-panel {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.loadout-filter-row {
+  grid-template-columns: minmax(180px, 1fr) minmax(130px, 160px) minmax(130px, 160px);
+}
+
 .loadout-skill-card {
   display: grid;
   grid-template-columns: 56px 1fr auto;
@@ -4758,6 +4842,10 @@ ul {
 
 .loadout-skill-main strong {
   font-size: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 .loadout-skill-main span {
@@ -4779,6 +4867,55 @@ ul {
   font-size: 12px;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.skill-quantity-control {
+  display: inline-grid;
+  grid-template-columns: 28px 28px 28px;
+  align-items: center;
+  justify-items: center;
+  gap: 4px;
+}
+
+.skill-quantity-control button {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(245, 196, 81, 0.36);
+  background: rgba(28, 25, 23, 0.8);
+  color: #f5c451;
+  font-weight: 900;
+}
+
+.skill-quantity-control button:disabled {
+  opacity: 0.38;
+}
+
+.skill-quantity-control b {
+  color: #fafaf9;
+}
+
+.faction-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.faction-assignment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.faction-edit-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 56px;
+  gap: 8px;
+  align-items: center;
+}
+
+.faction-color-input {
+  min-height: 38px;
+  padding: 3px;
 }
 
 .deploy-roster-item {
@@ -4806,6 +4943,10 @@ ul {
 
   .skill-loadout-roster {
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .loadout-filter-row {
+    grid-template-columns: 1fr;
   }
 
   .setup-character-pick {

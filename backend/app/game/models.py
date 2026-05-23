@@ -5,6 +5,7 @@ from typing import Any, Literal
 EntityType = Literal["character", "summon", "monster"]
 Direction = Literal["up", "down", "left", "right"]
 TerrainType = Literal["normal", "obstacle", "lava", "swamp", "wood_stake", "ice", "thunderstorm"]
+Rarity = Literal["common", "rare", "uncommon", "epic", "legendary"]
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,10 @@ class SkillInstance:
     templateId: str
     source: str
     isUsed: bool = False
+    quantity: int = 1
+    maxQuantity: int = 3
+    sourceTypes: list[str] = field(default_factory=list)
+    acquiredAt: str | None = None
 
 
 @dataclass
@@ -103,6 +108,14 @@ class BattleEvent:
 
 
 @dataclass
+class Faction:
+    id: str
+    name: str
+    color: str
+    iconUrl: str | None = None
+
+
+@dataclass
 class BattleEntity:
     id: str
     type: EntityType
@@ -126,6 +139,7 @@ class BattleEntity:
     portraitImageUrl: str | None = None
     ownerId: str | None = None
     controllerId: str | None = None
+    factionId: str = ""
     permanentAP: int = 3
     temporaryAP: int = 0
     isAlive: bool = True
@@ -172,8 +186,20 @@ class GameState:
     actionQueue: list[str] = field(default_factory=list)
     currentEntityId: str | None = None
     alliances: list[AllianceLink] = field(default_factory=list)
+    factions: dict[str, Faction] = field(default_factory=dict)
     pendingRewards: dict[str, PendingReward] = field(default_factory=dict)
     rewardSkillPoolTemplateIds: list[str] = field(default_factory=list)
+    rewardSkillTemplateRarities: dict[str, Rarity] = field(default_factory=dict)
+    rarityDropWeights: dict[Rarity, int] = field(
+        default_factory=lambda: {
+            "common": 50,
+            "rare": 25,
+            "uncommon": 15,
+            "epic": 8,
+            "legendary": 2,
+        }
+    )
+    maxSkillStackQuantity: int = 3
     startSeed: str | None = None
     recentDamagedEntityIds: list[str] = field(default_factory=list)
     recentDamageEvents: list[DamageEvent] = field(default_factory=list)

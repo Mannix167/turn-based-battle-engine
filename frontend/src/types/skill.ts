@@ -46,6 +46,21 @@ export interface SkillVisualConfig {
   soundKey?: string | null
 }
 
+export type Rarity = 'common' | 'rare' | 'uncommon' | 'epic' | 'legendary'
+
+export type SkillCategory =
+  | 'damage'
+  | 'heal'
+  | 'buff'
+  | 'debuff'
+  | 'control'
+  | 'movement'
+  | 'summon'
+  | 'terrain'
+  | 'alliance'
+  | 'resource'
+  | 'special'
+
 /* ── SkillTemplateRead ── 对齐 backend SkillTemplateRead ── */
 export interface SkillTemplateRead {
   id: string
@@ -55,6 +70,12 @@ export interface SkillTemplateRead {
   skillKind: 'built_in' | 'configurable'
   enabled: boolean
   usableAs: ('character' | 'common' | 'reward' | 'summon')[]
+  rarity: Rarity
+  skillPointCost: number
+  categories: SkillCategory[]
+  editable: boolean
+  isSystemSkill: boolean
+  version: number
   category: 'character' | 'common'
   cost: number
   range: number
@@ -83,6 +104,12 @@ export interface SkillTemplateWrite {
   skillKind: 'built_in' | 'configurable'
   enabled: boolean
   usableAs: ('character' | 'common' | 'reward' | 'summon')[]
+  rarity: Rarity
+  skillPointCost: number
+  categories: SkillCategory[]
+  editable: boolean
+  isSystemSkill: boolean
+  version: number
   category: 'character' | 'common'
   cost: number
   range: number
@@ -157,4 +184,34 @@ export const USAGE_LABELS: Record<(typeof USAGE_OPTIONS)[number], string> = {
   common: '开局通用',
   reward: '击杀奖励',
   summon: '召唤单位',
+}
+
+export const RARITY_LABELS: Record<Rarity, string> = {
+  common: '普通',
+  rare: '稀有',
+  uncommon: '罕见',
+  epic: '史诗',
+  legendary: '传说',
+}
+
+export const RARITY_COLORS: Record<Rarity, string> = {
+  common: '#ffffff',
+  rare: '#22c55e',
+  uncommon: '#3b82f6',
+  epic: '#a855f7',
+  legendary: '#f59e0b',
+}
+
+export const SKILL_CATEGORY_LABELS: Record<SkillCategory, string> = {
+  damage: '伤害',
+  heal: '治疗',
+  buff: '增益',
+  debuff: '减益',
+  control: '控制',
+  movement: '位移',
+  summon: '召唤',
+  terrain: '地形',
+  alliance: '结盟',
+  resource: '资源',
+  special: '特殊',
 }

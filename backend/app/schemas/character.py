@@ -1,4 +1,8 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+Rarity = Literal["common", "rare", "uncommon", "epic", "legendary"]
 
 
 class CharacterBase(BaseModel):
@@ -12,6 +16,8 @@ class CharacterBase(BaseModel):
     speed: int = Field(default=10, ge=0)
     critRate: int = Field(default=10, ge=0, le=100)
     luck: int = Field(default=50, ge=0, le=100)
+    rarity: Rarity = "common"
+    skillPointCapacity: int = Field(default=3, ge=0)
     portraitImageUrl: str | None = None
     tokenImageUrl: str | None = None
     defaultSkillTemplateIds: list[str] = []

@@ -2,6 +2,7 @@ from app.game.action_points import begin_action, end_action
 from app.game.alliance import tick_temporary_alliances
 from app.game.models import BattleEntity, GameState
 from app.game.status.status_engine import trigger_action_start_status
+from app.game.summons import defeat_owned_summons
 from app.game.terrain import tick_terrain_durations, trigger_action_start_terrain
 
 
@@ -38,8 +39,11 @@ def advance_to_next_actor(state: GameState) -> str | None:
         state.recentEvents = []
         if trigger_action_start_terrain(state, entity):
             state.log.append(f"{entity.name} was defeated by terrain")
+            defeat_owned_summons(state, entity)
             continue
         if trigger_action_start_status(state, entity):
+            if not entity.isAlive:
+                defeat_owned_summons(state, entity)
             end_action(entity)
             state.log.append(f"{entity.name} skips action")
             continue

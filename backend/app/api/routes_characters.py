@@ -27,6 +27,8 @@ def to_schema(record: CharacterRecord) -> CharacterRead:
         speed=record.speed,
         critRate=record.crit_rate,
         luck=record.luck,
+        rarity=record.rarity or "common",
+        skillPointCapacity=record.skill_point_capacity if record.skill_point_capacity is not None else 3,
         portraitImageUrl=record.portrait_image_url,
         tokenImageUrl=record.token_image_url,
         defaultSkillTemplateIds=json.loads(record.default_skill_template_ids or "[]"),
@@ -44,6 +46,8 @@ def apply_payload(record: CharacterRecord, payload: CharacterCreate | CharacterU
     record.speed = max(0, payload.speed)
     record.crit_rate = min(100, max(0, payload.critRate))
     record.luck = min(100, max(0, payload.luck))
+    record.rarity = payload.rarity or "common"
+    record.skill_point_capacity = max(0, payload.skillPointCapacity)
     record.portrait_image_url = payload.portraitImageUrl
     record.token_image_url = payload.tokenImageUrl
     record.default_skill_template_ids = json.dumps(payload.defaultSkillTemplateIds)

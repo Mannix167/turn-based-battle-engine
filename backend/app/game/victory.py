@@ -3,7 +3,13 @@ from app.game.models import GameState
 
 
 def update_victory(state: GameState) -> bool:
-    groups = alliance_groups(state)
+    character_ids = [
+        entity.id
+        for entity in state.entities.values()
+        if entity.isAlive and entity.type == "character"
+    ]
+    all_groups = alliance_groups(state)
+    groups = {entity_id: all_groups[entity_id] for entity_id in character_ids if entity_id in all_groups}
     unique_groups = set(groups.values())
     if len(unique_groups) == 1 and groups:
         state.isFinished = True

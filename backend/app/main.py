@@ -21,7 +21,10 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Turn-Based Grid Game v2")
     app.include_router(characters_router, prefix="/api/characters", tags=["characters"])
+    app.include_router(characters_router, prefix="/api/character-templates", tags=["character-templates"])
     app.include_router(monsters_router, prefix="/api/monster-templates", tags=["monster-templates"])
+    app.include_router(monsters_router, prefix="/api/creatures", tags=["creatures"])
+    app.include_router(monsters_router, prefix="/api/creature-templates", tags=["creature-templates"])
     app.include_router(skills_router, prefix="/api/skills", tags=["skills"])
     app.include_router(maps_router, prefix="/api/maps", tags=["maps"])
     app.include_router(game_router, prefix="/api/game", tags=["game"])

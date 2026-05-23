@@ -33,7 +33,15 @@ def dig_treasure(
     treasure.isDug = True
     roller = rng or Random()
     if roller.random() < entity.luck / 100:
-        skill = grant_random_common_skill(entity, roller, state.rewardSkillPoolTemplateIds)
+        skill = grant_random_common_skill(
+            entity,
+            roller,
+            state.rewardSkillPoolTemplateIds,
+            state.rewardSkillTemplateRarities,
+            state.rarityDropWeights,
+            state.maxSkillStackQuantity,
+            state.log,
+        )
         if skill:
             state.log.append(f"{entity.name} dug {treasure.name} and found a skill")
         else:

@@ -10,9 +10,12 @@ import {
   updateMonsterTemplate,
 } from '../api/monsters'
 import type { MonsterTemplateRead, MonsterTemplateWrite } from '../types/monster'
+import { listAllSkillTemplates } from '../api/skills'
+import type { SkillTemplateRead, Rarity } from '../types/skill'
+import { RARITY_LABELS } from '../types/skill'
 
 const blankMonster: MonsterTemplateWrite = {
-  name: '新小怪',
+  name: '新生物',
   description: '',
   maxHp: 30,
   baseAttack: 8,
@@ -21,14 +24,20 @@ const blankMonster: MonsterTemplateWrite = {
   speed: 0,
   critRate: 0,
   luck: 0,
+  tempApPerTurn: 1,
+  rarity: 'common',
   tokenImageUrl: null,
   portraitImageUrl: null,
   enabled: true,
+  canSpawnAsMonster: true,
+  canBeSummoned: false,
+  summonSkillTemplateIds: [],
 }
 
 export default function MonsterManagerPage() {
   const navigate = useNavigate()
   const [monsters, setMonsters] = useState<MonsterTemplateRead[]>([])
+  const [skills, setSkills] = useState<SkillTemplateRead[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<MonsterTemplateWrite>(blankMonster)
   const [loading, setLoading] = useState(true)
@@ -43,14 +52,15 @@ export default function MonsterManagerPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const data = await listMonsterTemplates(true)
+      const [data, skillData] = await Promise.all([listMonsterTemplates(true), listAllSkillTemplates()])
       setMonsters(data)
+      setSkills(skillData.filter((skill) => skill.enabled))
       if (!selectedId && data[0]) {
         setSelectedId(data[0].id)
         setDraft(toDraft(data[0]))
       }
     } catch {
-      setError('无法加载小怪模板，请确认后端已启动')
+      setError('无法加载生物模板，请确认后端已启动')
     } finally {
       setLoading(false)
     }
@@ -79,7 +89,7 @@ export default function MonsterManagerPage() {
       await load()
       setSelectedId(saved.id)
       setDraft(toDraft(saved))
-      setMessage('小怪模板已保存')
+      setMessage('生物模板已保存')
     } catch (err: unknown) {
       const detail =
         err && typeof err === 'object' && 'response' in err
@@ -95,7 +105,7 @@ export default function MonsterManagerPage() {
     await load()
     setSelectedId(copy.id)
     setDraft(toDraft(copy))
-    setMessage('已复制小怪模板')
+    setMessage('已复制生物模板')
   }
 
   const remove = async () => {
@@ -104,14 +114,14 @@ export default function MonsterManagerPage() {
     setSelectedId(null)
     setDraft(blankMonster)
     await load()
-    setMessage('已删除小怪模板')
+    setMessage('已删除生物模板')
   }
 
   return (
     <div className="editor-page monster-manager-page">
       <div className="editor-header">
         <button className="btn btn-secondary" onClick={() => navigate('/')}>返回首页</button>
-        <h2 className="editor-title">小怪管理</h2>
+        <h2 className="editor-title">生物管理</h2>
         <button
           className="btn btn-primary"
           onClick={() => {
@@ -121,7 +131,7 @@ export default function MonsterManagerPage() {
             setError(null)
           }}
         >
-          新增小怪
+          新增生物
         </button>
       </div>
 
@@ -142,6 +152,7 @@ export default function MonsterManagerPage() {
                 <span className="monster-row-main">
                   <strong>{monster.name}</strong>
                   <span>HP {monster.maxHp} / ATK {monster.baseAttack} / DEF {monster.baseDefense}</span>
+                  <small>{monster.canSpawnAsMonster ? '怪物' : ''}{monster.canSpawnAsMonster && monster.canBeSummoned ? ' / ' : ''}{monster.canBeSummoned ? '召唤物' : ''}</small>
                 </span>
                 <span className={`monster-enabled-pill ${monster.enabled ? 'on' : 'off'}`}>
                   {monster.enabled ? '启用' : '禁用'}
@@ -183,6 +194,7 @@ export default function MonsterManagerPage() {
                 ['speed', '速度', 0, 999],
                 ['critRate', '暴击率', 0, 100],
                 ['luck', '幸运', 0, 100],
+                ['tempApPerTurn', '临时AP/回合', 0, 20],
               ] as const).map(([key, label, min, max]) => (
                 <label key={key} className="form-row">
                   <span className="form-label">{label}</span>
@@ -202,8 +214,51 @@ export default function MonsterManagerPage() {
                   checked={draft.enabled}
                   onChange={(e) => setField('enabled', e.target.checked)}
                 />
-                <span>允许进入随机小怪池</span>
+                <span>启用</span>
               </label>
+              <label className="monster-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={draft.canSpawnAsMonster}
+                  onChange={(e) => setField('canSpawnAsMonster', e.target.checked)}
+                />
+                <span>可作为怪物生成</span>
+              </label>
+              <label className="monster-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={draft.canBeSummoned}
+                  onChange={(e) => setField('canBeSummoned', e.target.checked)}
+                />
+                <span>可作为召唤物</span>
+              </label>
+              <label className="form-row">
+                <span className="form-label">稀有度</span>
+                <select className="form-input" value={draft.rarity} onChange={(e) => setField('rarity', e.target.value as Rarity)}>
+                  {(Object.keys(RARITY_LABELS) as Rarity[]).map((rarity) => <option key={rarity} value={rarity}>{RARITY_LABELS[rarity]}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <div className="form-section">
+              <h4>召唤物默认技能</h4>
+              <div className="char-skill-grid">
+                {skills.map((skill) => (
+                  <button
+                    key={skill.id}
+                    type="button"
+                    className={`char-skill-tag ${draft.summonSkillTemplateIds.includes(skill.id) ? 'checked' : ''}`}
+                    onClick={() => setField(
+                      'summonSkillTemplateIds',
+                      draft.summonSkillTemplateIds.includes(skill.id)
+                        ? draft.summonSkillTemplateIds.filter((id) => id !== skill.id)
+                        : [...draft.summonSkillTemplateIds, skill.id],
+                    )}
+                  >
+                    {skill.name}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="form-images">
@@ -234,8 +289,13 @@ function toDraft(monster: MonsterTemplateRead): MonsterTemplateWrite {
     speed: monster.speed,
     critRate: monster.critRate,
     luck: monster.luck,
+    tempApPerTurn: monster.tempApPerTurn,
+    rarity: monster.rarity,
     tokenImageUrl: monster.tokenImageUrl,
     portraitImageUrl: monster.portraitImageUrl,
     enabled: monster.enabled,
+    canSpawnAsMonster: monster.canSpawnAsMonster,
+    canBeSummoned: monster.canBeSummoned,
+    summonSkillTemplateIds: [...monster.summonSkillTemplateIds],
   }
 }

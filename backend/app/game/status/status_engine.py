@@ -1,5 +1,6 @@
 from app.game.damage import apply_damage_to_state, apply_fixed_damage_to_state
 from app.game.distance import manhattan
+from app.game.alliance import are_allies
 from app.game.models import BattleEntity, GameState, StatusEffect
 
 
@@ -63,7 +64,7 @@ def trigger_delayed_area_damage(state: GameState, status: StatusEffect) -> None:
     area_type = status.metadata.get("areaType", "square")
     radius = max(1, int(status.metadata.get("areaSize", 3)) // 2)
     for target in state.entities.values():
-        if not target.isAlive or target.id == source.id:
+        if not target.isAlive or target.id == source.id or are_allies(state, source, target):
             continue
         dx = abs(target.x - center_x)
         dy = abs(target.y - center_y)

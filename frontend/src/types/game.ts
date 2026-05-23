@@ -10,6 +10,10 @@ export interface SkillInstance {
   templateId: string
   source: string
   isUsed: boolean
+  quantity: number
+  maxQuantity: number
+  sourceTypes: string[]
+  acquiredAt?: string | null
 }
 
 export interface StatusEffect {
@@ -29,6 +33,10 @@ export interface BattleEntity {
   name: string
   ownerId?: string
   controllerId?: string
+  factionId: string
+  templateId?: string | null
+  tokenImageUrl?: string | null
+  portraitImageUrl?: string | null
   x: number
   y: number
   maxHp: number
@@ -103,6 +111,13 @@ export interface BattleEvent {
   metadata?: Record<string, unknown>
 }
 
+export interface Faction {
+  id: string
+  name: string
+  color: string
+  iconUrl?: string | null
+}
+
 export interface GameStateRead {
   gameId: string
   mapId: string
@@ -113,7 +128,11 @@ export interface GameStateRead {
   entities: BattleEntity[]
   treasures: TreasureEntity[]
   pendingRewards: Record<string, PendingReward>
+  factions: Faction[]
   rewardSkillPoolTemplateIds: string[]
+  rewardSkillTemplateRarities: Record<string, string>
+  rarityDropWeights: Record<string, number>
+  maxSkillStackQuantity: number
   startSeed: string | null
   recentDamageEvents: DamageEvent[]
   recentEvents: BattleEvent[]
@@ -135,6 +154,8 @@ export interface StartGameRequest {
   randomTreasureCount?: number
   monsterTemplatePoolIds?: string[]
   rewardSkillPoolTemplateIds?: string[]
+  factions?: Faction[]
+  characterFactionAssignments?: Record<string, string>
   startSeed?: string | null
 }
 
@@ -143,6 +164,9 @@ export interface PreviewStartResponse {
   previewMonsters: { id: string; monsterTemplateId: string; position: Position }[]
   previewTreasures: { id: string; position: Position }[]
   rewardSkillPoolTemplateIds: string[]
+  rewardSkillTemplateRarities: Record<string, string>
+  rarityDropWeights: Record<string, number>
+  maxSkillStackQuantity: number
   warnings: string[]
 }
 

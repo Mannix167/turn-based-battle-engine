@@ -1,5 +1,5 @@
 import React from 'react'
-import type { BattleEntity, SkillInstance } from '../types/game'
+import type { BattleEntity, Faction, SkillInstance } from '../types/game'
 import type { SkillTemplateRead } from '../types/skill'
 import SkillCard from './SkillCard'
 
@@ -43,6 +43,8 @@ interface Props {
   errorMessage: string | null
   canAct?: boolean
   panelTitle?: string
+  faction?: Faction | null
+  ownerName?: string | null
 }
 
 function ApDots({ count, color, label }: { count: number; color: string; label: string }) {
@@ -75,6 +77,8 @@ export default function EntityPanel({
   errorMessage,
   canAct = true,
   panelTitle,
+  faction,
+  ownerName,
 }: Props) {
   if (!entity) {
     return (
@@ -106,6 +110,12 @@ export default function EntityPanel({
           <div className={`panel-type-tag type-${entity.type}`}>
             {entity.type === 'character' ? '角色' : entity.type === 'summon' ? '召唤物' : '小怪'}
           </div>
+          {faction && (
+            <div className="panel-faction-tag" style={{ borderColor: faction.color, color: faction.color }}>
+              {faction.name}
+            </div>
+          )}
+          {entity.type === 'summon' && ownerName && <div className="panel-owner-tag">主人：{ownerName}</div>}
         </div>
       </div>
 

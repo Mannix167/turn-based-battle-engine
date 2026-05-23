@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.game.alliance import are_allies
 from app.game import engine
-from app.game.fixtures import MAPS, demo_entity
+from app.game.fixtures import MAPS, SKILL_TEMPLATES, demo_entity
 from app.api.routes_maps import get_map as get_map_template
 from app.api.routes_skills import all_templates, get_template_by_id
 from app.db.database import get_db
@@ -16,7 +16,8 @@ from app.db.models import CharacterRecord, MonsterTemplateRecord
 from app.game.damage import calculate_damage
 from app.game.distance import manhattan
 from app.game.map_system import is_occupied, is_valid_cell, occupied_entity_at
-from app.game.models import BattleEntity, GameMap, GameState, MapCell, Position, SkillInstance, TerrainState, TreasureEntity
+from app.game.models import BattleEntity, Faction, GameMap, GameState, MapCell, Position, TerrainState, TreasureEntity
+from app.game.reward import grant_skill
 from app.game.terrain import blocks_placement, blocks_random_spawn, damage_destructible_terrain, get_cell, is_walkable, movement_leave_cost, normalize_map_cells
 from app.game.turn_queue import end_current_action
 from app.schemas.game import (
@@ -58,7 +59,11 @@ def serialize_state(state: GameState) -> GameStateRead:
         entities=[asdict(entity) for entity in state.entities.values()],
         treasures=[{"type": "treasure", **asdict(treasure)} for treasure in state.treasures.values()],
         pendingRewards={key: asdict(value) for key, value in state.pendingRewards.items()},
+        factions=[asdict(faction) for faction in state.factions.values()],
         rewardSkillPoolTemplateIds=state.rewardSkillPoolTemplateIds,
+        rewardSkillTemplateRarities=state.rewardSkillTemplateRarities,
+        rarityDropWeights=state.rarityDropWeights,
+        maxSkillStackQuantity=state.maxSkillStackQuantity,
         startSeed=state.startSeed,
         recentDamageEvents=[asdict(event) for event in state.recentDamageEvents],
         recentEvents=[asdict(event) for event in state.recentEvents],
@@ -105,6 +110,14 @@ def create_game(payload: CreateGameRequest) -> GameStateRead:
             demo_entity("p2", "Player Two", 1, 0, 2, speed=8),
         ],
     )
+    state.entities["p1"].factionId = "faction_p1"
+    state.entities["p2"].factionId = "faction_p2"
+    state.factions = {
+        "faction_p1": Faction("faction_p1", "Player One", "#22c55e"),
+        "faction_p2": Faction("faction_p2", "Player Two", "#3b82f6"),
+        "monster": Faction("monster", "怪物", "#ef4444"),
+    }
+    sync_reward_rarities(state, SKILL_TEMPLATES)
     GAMES[state.gameId] = state
     return serialize_state(state)
 
@@ -121,6 +134,11 @@ def start_game(payload: StartGameRequest, db: Session = Depends(get_db)) -> Game
         raise HTTPException(status_code=400, detail="At least one character is required")
     map_template = get_map_template(normalized["map_id"], db)
     game_map = map_template_to_game_map(map_template)
+    factions, faction_assignments = normalize_factions(
+        normalized["entity_ids"],
+        normalized["factions"],
+        normalized["character_faction_assignments"],
+    )
     seen_positions: set[Position] = set()
     entities: list[BattleEntity] = []
     fixed_blocking_positions = {
@@ -145,10 +163,16 @@ def start_game(payload: StartGameRequest, db: Session = Depends(get_db)) -> Game
         record = db.get(CharacterRecord, entity_id)
         if not record:
             raise HTTPException(status_code=404, detail=f"Character not found: {entity_id}")
-        entities.append(character_record_to_entity(record, pos.x, pos.y, index, normalized["selected_skills"], db))
+        entity = character_record_to_entity(record, pos.x, pos.y, index, normalized["selected_skills"], db)
+        entity.factionId = faction_assignments[record.id]
+        entities.append(entity)
     state = engine.create_state(game_map, entities)
+    state.factions = factions
     preview = build_start_preview(payload, db)
     state.rewardSkillPoolTemplateIds = preview.rewardSkillPoolTemplateIds
+    state.rewardSkillTemplateRarities = preview.rewardSkillTemplateRarities
+    state.rarityDropWeights = preview.rarityDropWeights
+    state.maxSkillStackQuantity = preview.maxSkillStackQuantity
     state.startSeed = preview.startSeed
     add_fixed_map_entities(state, map_template, db)
     add_random_start_entities(state, preview, db)
@@ -168,7 +192,31 @@ def normalize_start_payload(payload: StartGameRequest) -> dict:
         "entity_ids": entity_ids,
         "positions": positions,
         "selected_skills": selected_skills,
+        "factions": payload.factions,
+        "character_faction_assignments": payload.characterFactionAssignments,
     }
+
+
+def normalize_factions(entity_ids: list[str], payload_factions: list, assignments: dict[str, str]) -> tuple[dict[str, Faction], dict[str, str]]:
+    palette = ["#22c55e", "#3b82f6", "#a855f7", "#f59e0b", "#ef4444", "#14b8a6"]
+    factions: dict[str, Faction] = {
+        item.id: Faction(id=item.id, name=item.name, color=item.color, iconUrl=item.iconUrl)
+        for item in payload_factions
+        if item.id
+    }
+    normalized_assignments: dict[str, str] = {}
+    for index, entity_id in enumerate(entity_ids):
+        faction_id = assignments.get(entity_id) or f"faction_{entity_id}"
+        if faction_id not in factions:
+            factions[faction_id] = Faction(
+                id=faction_id,
+                name=f"阵营 {index + 1}",
+                color=palette[index % len(palette)],
+            )
+        normalized_assignments[entity_id] = faction_id
+    if "monster" not in factions:
+        factions["monster"] = Faction(id="monster", name="怪物", color="#ef4444")
+    return factions, normalized_assignments
 
 
 def map_template_to_game_map(map_template) -> GameMap:
@@ -201,10 +249,12 @@ def map_template_to_game_map(map_template) -> GameMap:
 
 def build_start_preview(payload: StartGameRequest, db: Session) -> PreviewStartResponse:
     normalized = normalize_start_payload(payload)
+    validate_start_skill_payload(normalized, db)
     map_template = get_map_template(normalized["map_id"], db)
     game_map = map_template_to_game_map(map_template)
     seed = payload.startSeed or f"seed_{uuid4().hex[:12]}"
     reward_pool, warnings = resolve_reward_pool(payload.rewardSkillPoolTemplateIds, db)
+    templates = all_templates(db)
     monster_pool = resolve_monster_pool(payload.monsterTemplatePoolIds, payload.randomMonsterCount, db)
     rng = Random(seed)
     occupied: set[Position] = set()
@@ -259,8 +309,28 @@ def build_start_preview(payload: StartGameRequest, db: Session) -> PreviewStartR
         previewMonsters=preview_monsters,
         previewTreasures=preview_treasures,
         rewardSkillPoolTemplateIds=reward_pool,
+        rewardSkillTemplateRarities={
+            template_id: templates[template_id].rarity
+            for template_id in reward_pool
+            if template_id in templates
+        },
+        rarityDropWeights={
+            "common": 50,
+            "rare": 25,
+            "uncommon": 15,
+            "epic": 8,
+            "legendary": 2,
+        },
+        maxSkillStackQuantity=3,
         warnings=warnings,
     )
+
+
+def validate_start_skill_payload(normalized: dict, db: Session) -> None:
+    for character_id in normalized["entity_ids"]:
+        record = db.get(CharacterRecord, character_id)
+        if record:
+            validate_selected_common_skills(record, normalized["selected_skills"].get(character_id, []), db)
 
 
 def available_random_cells(game_map: GameMap, occupied: set[Position]) -> list[Position]:
@@ -279,7 +349,10 @@ def resolve_monster_pool(
     random_monster_count: int,
     db: Session,
 ) -> list[MonsterTemplateRecord]:
-    query = db.query(MonsterTemplateRecord).filter(MonsterTemplateRecord.enabled == 1)
+    query = db.query(MonsterTemplateRecord).filter(
+        MonsterTemplateRecord.enabled == 1,
+        MonsterTemplateRecord.can_spawn_as_monster == 1,
+    )
     records = query.all()
     if requested_ids:
         requested = set(requested_ids)
@@ -305,6 +378,14 @@ def resolve_reward_pool(requested_ids: list[str], db: Session) -> tuple[list[str
         if template.enabled and ("common" in template.usableAs or "reward" in template.usableAs)
     ]
     return pool, []
+
+
+def sync_reward_rarities(state: GameState, templates: dict) -> None:
+    state.rewardSkillTemplateRarities = {
+        template_id: getattr(template, "rarity", "common")
+        for template_id, template in templates.items()
+        if template_id in state.rewardSkillPoolTemplateIds
+    }
 
 
 def character_record_to_entity(
@@ -336,11 +417,12 @@ def character_record_to_entity(
     )
     default_template_ids = json.loads(record.default_skill_template_ids or "[]")
     selected_template_ids = selected_skill_template_ids.get(record.id, [])
+    validate_selected_common_skills(record, selected_template_ids, db)
     for source, template_ids in (
         ("character_default", default_template_ids),
         ("start_common", selected_template_ids),
     ):
-        for offset, template_id in enumerate(template_ids, start=1):
+        for template_id in template_ids:
             template = get_template_by_id(template_id, db)
             if not template or not template.enabled:
                 continue
@@ -348,14 +430,36 @@ def character_record_to_entity(
                 continue
             if source == "start_common" and "common" not in template.usableAs:
                 continue
-            entity.skillInstances.append(
-                SkillInstance(
-                    instanceId=f"{record.id}_{template_id}_{source}_{offset}",
-                    templateId=template_id,
-                    source=source,
-                )
-            )
+            grant_skill(entity, template_id, source, max_quantity=3)
     return entity
+
+
+def validate_selected_common_skills(
+    record: CharacterRecord,
+    selected_template_ids: list[str],
+    db: Session,
+) -> None:
+    counts: dict[str, int] = {}
+    total_cost = 0
+    capacity = record.skill_point_capacity if record.skill_point_capacity is not None else 3
+    for template_id in selected_template_ids:
+        template = get_template_by_id(template_id, db)
+        if not template or not template.enabled or "common" not in template.usableAs:
+            raise HTTPException(status_code=400, detail=f"Skill cannot be used as start common skill: {template_id}")
+        counts[template_id] = counts.get(template_id, 0) + 1
+        if counts[template_id] > 3:
+            raise HTTPException(status_code=400, detail=f"Skill stack exceeds max quantity: {template_id}")
+        total_cost += max(0, template.skillPointCost)
+    if total_cost > capacity:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "SKILL_POINT_CAPACITY_EXCEEDED",
+                "characterId": record.id,
+                "usedSkillPoints": total_cost,
+                "skillPointCapacity": capacity,
+            },
+        )
 
 
 def monster_record_to_entity(
@@ -386,6 +490,7 @@ def monster_record_to_entity(
         joinOrder=join_order,
         tokenImageUrl=record.token_image_url,
         portraitImageUrl=record.portrait_image_url,
+        factionId="monster",
     )
 
 
@@ -396,8 +501,11 @@ def add_fixed_map_entities(state: GameState, map_template, db: Session) -> None:
             state.treasures[fixed.id] = TreasureEntity(id=fixed.id, name=fixed.templateId or "Treasure", x=fixed.x, y=fixed.y)
         elif fixed.type == "monster":
             record = db.get(MonsterTemplateRecord, fixed.templateId or "")
-            if not record or not record.enabled:
-                record = db.query(MonsterTemplateRecord).filter(MonsterTemplateRecord.enabled == 1).first()
+            if not record or not record.enabled or not record.can_spawn_as_monster:
+                record = db.query(MonsterTemplateRecord).filter(
+                    MonsterTemplateRecord.enabled == 1,
+                    MonsterTemplateRecord.can_spawn_as_monster == 1,
+                ).first()
             if not record:
                 raise HTTPException(status_code=400, detail="NO_AVAILABLE_MONSTER_TEMPLATE")
             monster = monster_record_to_entity(record, fixed.id, fixed.x, fixed.y, next_join)
@@ -659,6 +767,7 @@ def use_skill(game_id: str, payload: UseSkillRequest, db: Session = Depends(get_
         template = get_template_by_id(instance.templateId, db)
         if not template or not template.enabled:
             raise KeyError(instance.templateId)
+        template = hydrate_summon_effects(template, db)
         target_position = (
             Position(payload.targetCell.x, payload.targetCell.y) if payload.targetCell is not None else None
         )
@@ -677,6 +786,34 @@ def use_skill(game_id: str, payload: UseSkillRequest, db: Session = Depends(get_
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return serialize_state(state)
+
+
+def hydrate_summon_effects(template, db: Session):
+    for effect in template.effects:
+        if effect.type != "summon":
+            continue
+        creature_id = effect.metadata.get("creatureTemplateId")
+        if not creature_id:
+            continue
+        record = db.get(MonsterTemplateRecord, creature_id)
+        if not record or not record.enabled or not record.can_be_summoned:
+            raise HTTPException(status_code=400, detail="Creature cannot be summoned")
+        effect.metadata["creatureTemplate"] = {
+            "id": record.id,
+            "name": record.name,
+            "maxHp": record.max_hp,
+            "baseAttack": record.base_attack,
+            "baseDefense": record.base_defense,
+            "attackRange": record.attack_range,
+            "tempApPerTurn": record.temp_ap_per_turn,
+            "speed": record.speed,
+            "critRate": record.crit_rate,
+            "luck": record.luck,
+            "tokenImageUrl": record.token_image_url,
+            "portraitImageUrl": record.portrait_image_url,
+            "summonSkillTemplateIds": json.loads(record.summon_skill_template_ids or "[]"),
+        }
+    return template
 
 
 @router.post("/{game_id}/dig-treasure", response_model=GameStateRead)

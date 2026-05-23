@@ -2,6 +2,21 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+Rarity = Literal["common", "rare", "uncommon", "epic", "legendary"]
+SkillCategory = Literal[
+    "damage",
+    "heal",
+    "buff",
+    "debuff",
+    "control",
+    "movement",
+    "summon",
+    "terrain",
+    "alliance",
+    "resource",
+    "special",
+]
+
 
 EffectType = Literal[
     "damage",
@@ -58,6 +73,12 @@ class SkillTemplateBase(BaseModel):
     skillKind: Literal["built_in", "configurable"] = "configurable"
     enabled: bool = True
     usableAs: list[Literal["character", "common", "reward", "summon"]] = ["common", "reward"]
+    rarity: Rarity = "common"
+    skillPointCost: int = Field(default=1, ge=0)
+    categories: list[SkillCategory] = ["damage"]
+    editable: bool = True
+    isSystemSkill: bool = False
+    version: int = 1
     category: Literal["character", "common"]
     cost: int = Field(ge=0)
     range: int = Field(ge=0)

@@ -281,6 +281,7 @@ export default function FullscreenMapViewport({
                     isSelected={Boolean(selected)}
                     visualEffect={'isAlive' in entity ? tokenEffects[entity.id] : undefined}
                     tokenImageUrl={'isAlive' in entity ? tokenImageUrls[entity.id] : null}
+                    faction={'isAlive' in entity ? gameState.factions.find((faction) => faction.id === entity.factionId) : null}
                   />
                 )}
               </button>

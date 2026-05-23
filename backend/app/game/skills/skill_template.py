@@ -2,6 +2,21 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 
+Rarity = Literal["common", "rare", "uncommon", "epic", "legendary"]
+SkillCategory = Literal[
+    "damage",
+    "heal",
+    "buff",
+    "debuff",
+    "control",
+    "movement",
+    "summon",
+    "terrain",
+    "alliance",
+    "resource",
+    "special",
+]
+
 EffectType = Literal[
     "damage",
     "heal",
@@ -67,6 +82,12 @@ class SkillTemplate:
     skillKind: Literal["built_in", "configurable"] = "built_in"
     enabled: bool = True
     usableAs: list[str] = field(default_factory=lambda: ["common", "reward"])
+    rarity: Rarity = "common"
+    skillPointCost: int = 1
+    categories: list[SkillCategory] = field(default_factory=lambda: ["damage"])
+    editable: bool = True
+    isSystemSkill: bool = False
+    version: int = 1
     affectSelfDamage: bool = False
     canTargetSelf: bool = False
     canTargetAlly: bool = False

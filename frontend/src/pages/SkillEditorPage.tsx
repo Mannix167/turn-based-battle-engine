@@ -7,13 +7,18 @@ import {
   listAllSkillTemplates,
   updateSkillTemplate,
 } from '../api/skills'
-import type { EffectConfig, EffectType, SkillTemplateRead, SkillTemplateWrite } from '../types/skill'
+import { listMonsterTemplates } from '../api/monsters'
+import type { EffectConfig, EffectType, Rarity, SkillCategory, SkillTemplateRead, SkillTemplateWrite } from '../types/skill'
+import type { MonsterTemplateRead } from '../types/monster'
 import {
   EFFECT_TYPE_LABELS,
   TARGET_TYPE_LABELS,
   AREA_TYPE_LABELS,
   USAGE_OPTIONS,
   USAGE_LABELS,
+  RARITY_COLORS,
+  RARITY_LABELS,
+  SKILL_CATEGORY_LABELS,
 } from '../types/skill'
 
 /* ── helpers ── */
@@ -65,6 +70,12 @@ const DEFAULT_FORM: SkillTemplateWrite = {
   skillKind: 'configurable',
   enabled: true,
   usableAs: ['common', 'reward'],
+  rarity: 'common',
+  skillPointCost: 1,
+  categories: ['damage'],
+  editable: true,
+  isSystemSkill: false,
+  version: 1,
   category: 'common',
   cost: 1,
   range: 3,
@@ -101,6 +112,12 @@ function normalizeSkill(skill: SkillTemplateRead): SkillTemplateRead {
     skillKind: skill.skillKind ?? 'built_in',
     enabled: skill.enabled ?? true,
     usableAs,
+    rarity: skill.rarity ?? 'common',
+    skillPointCost: skill.skillPointCost ?? 1,
+    categories: skill.categories?.length ? skill.categories : ['special'],
+    editable: skill.editable ?? true,
+    isSystemSkill: skill.isSystemSkill ?? skill.skillKind === 'built_in',
+    version: skill.version ?? 1,
     areaSize: skill.areaSize ?? 1,
     affectSelfDamage: skill.affectSelfDamage ?? false,
     canTargetMonster: skill.canTargetMonster ?? true,
@@ -121,18 +138,26 @@ function normalizeSkill(skill: SkillTemplateRead): SkillTemplateRead {
 export default function SkillEditorPage() {
   const navigate = useNavigate()
   const [skills, setSkills] = useState<SkillTemplateRead[]>([])
+  const [creatures, setCreatures] = useState<MonsterTemplateRead[]>([])
   const [selected, setSelected] = useState<SkillTemplateRead | null>(null)
   const [form, setForm] = useState<SkillTemplateWrite>({ ...DEFAULT_FORM, effects: [emptyEffect()] })
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [keyword, setKeyword] = useState('')
+  const [rarityFilter, setRarityFilter] = useState<'all' | Rarity>('all')
+  const [categoryFilter, setCategoryFilter] = useState<'all' | SkillCategory>('all')
+  const [enabledFilter, setEnabledFilter] = useState<'all' | 'enabled' | 'disabled'>('all')
+  const [originFilter, setOriginFilter] = useState<'all' | 'system' | 'custom'>('all')
+  const [usageFilter, setUsageFilter] = useState<'all' | 'common' | 'character'>('all')
 
-  const isBuiltIn = selected?.skillKind === 'built_in'
+  const selectedEditable = selected ? selected.editable !== false : true
 
   /* ── data ── */
 
   const loadSkills = useCallback(async () => {
-    const next = await listAllSkillTemplates()
+    const [next, creatureData] = await Promise.all([listAllSkillTemplates(), listMonsterTemplates(true)])
     setSkills(next.map(normalizeSkill))
+    setCreatures(creatureData.filter((creature) => creature.enabled && creature.canBeSummoned))
   }, [])
 
   useEffect(() => {
@@ -140,8 +165,20 @@ export default function SkillEditorPage() {
   }, [loadSkills])
 
   const sortedSkills = useMemo(
-    () => [...skills].sort((a, b) => Number(a.skillKind === 'built_in') - Number(b.skillKind === 'built_in') || a.name.localeCompare(b.name)),
-    [skills],
+    () => [...skills]
+      .filter((skill) => {
+        const q = keyword.trim().toLowerCase()
+        if (q && !skill.name.toLowerCase().includes(q) && !skill.description.toLowerCase().includes(q)) return false
+        if (rarityFilter !== 'all' && skill.rarity !== rarityFilter) return false
+        if (categoryFilter !== 'all' && !skill.categories.includes(categoryFilter)) return false
+        if (enabledFilter !== 'all' && skill.enabled !== (enabledFilter === 'enabled')) return false
+        if (originFilter === 'system' && !skill.isSystemSkill) return false
+        if (originFilter === 'custom' && skill.isSystemSkill) return false
+        if (usageFilter !== 'all' && !skill.usableAs.includes(usageFilter)) return false
+        return true
+      })
+      .sort((a, b) => Number(a.skillKind === 'built_in') - Number(b.skillKind === 'built_in') || a.name.localeCompare(b.name)),
+    [skills, keyword, rarityFilter, categoryFilter, enabledFilter, originFilter, usageFilter],
   )
 
   /* ── actions ── */
@@ -227,7 +264,7 @@ export default function SkillEditorPage() {
     setLoading(true)
     setMessage(null)
     try {
-      const payload = { ...form, skillKind: 'configurable' as const }
+      const payload = selected?.isSystemSkill ? { ...form, skillKind: 'built_in' as const, isSystemSkill: true } : { ...form, skillKind: 'configurable' as const, isSystemSkill: false }
       const saved = selected ? await updateSkillTemplate(selected.id, payload) : await createSkillTemplate(payload)
       setSelected(saved)
       setForm({ ...saved, effects: saved.effects.length ? saved.effects : [emptyEffect()] })
@@ -254,7 +291,7 @@ export default function SkillEditorPage() {
   }
 
   const remove = async () => {
-    if (!selected || isBuiltIn) return
+    if (!selected || selected.isSystemSkill) return
     await deleteSkillTemplate(selected.id)
     newSkill()
     await loadSkills()
@@ -275,6 +312,32 @@ export default function SkillEditorPage() {
         {/* 左侧列表 */}
         <aside className="editor-sidebar">
           <div className="sidebar-title">技能列表</div>
+          <div className="skill-filter-panel">
+            <input className="form-input" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索名称或描述" />
+            <select className="form-input" value={rarityFilter} onChange={(e) => setRarityFilter(e.target.value as 'all' | Rarity)}>
+              <option value="all">全部稀有度</option>
+              {(Object.keys(RARITY_LABELS) as Rarity[]).map((rarity) => <option key={rarity} value={rarity}>{RARITY_LABELS[rarity]}</option>)}
+            </select>
+            <select className="form-input" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value as 'all' | SkillCategory)}>
+              <option value="all">全部分类</option>
+              {(Object.keys(SKILL_CATEGORY_LABELS) as SkillCategory[]).map((category) => <option key={category} value={category}>{SKILL_CATEGORY_LABELS[category]}</option>)}
+            </select>
+            <select className="form-input" value={enabledFilter} onChange={(e) => setEnabledFilter(e.target.value as typeof enabledFilter)}>
+              <option value="all">全部状态</option>
+              <option value="enabled">启用</option>
+              <option value="disabled">禁用</option>
+            </select>
+            <select className="form-input" value={originFilter} onChange={(e) => setOriginFilter(e.target.value as typeof originFilter)}>
+              <option value="all">全部来源</option>
+              <option value="system">系统自带</option>
+              <option value="custom">自定义</option>
+            </select>
+            <select className="form-input" value={usageFilter} onChange={(e) => setUsageFilter(e.target.value as typeof usageFilter)}>
+              <option value="all">全部用途</option>
+              <option value="common">开局通用</option>
+              <option value="character">角色特定</option>
+            </select>
+          </div>
           <ul className="skill-editor-list">
             {sortedSkills.map((skill) => (
               <li
@@ -289,9 +352,11 @@ export default function SkillEditorPage() {
                   <div className="skill-editor-list-name">
                     {skill.name}
                     {!skill.enabled && <span className="tag-disabled">禁</span>}
+                    <span className="rarity-pill" style={{ borderColor: RARITY_COLORS[skill.rarity], color: RARITY_COLORS[skill.rarity] }}>{RARITY_LABELS[skill.rarity]}</span>
                   </div>
                   <div className="skill-editor-list-meta">
-                    <span>{skill.skillKind === 'built_in' ? '内置' : '自定义'}</span>
+                    <span>{skill.isSystemSkill ? '系统' : '自定义'}</span>
+                    <span>点 {skill.skillPointCost}</span>
                     <span>费 {skill.cost}</span>
                     <span>距 {skill.range}</span>
                   </div>
@@ -312,8 +377,8 @@ export default function SkillEditorPage() {
             {message && (
               <div className={`form-message form-message-${message.type}`}>{message.text}</div>
             )}
-            {isBuiltIn && (
-              <div className="form-message form-message-error">内置技能不能直接编辑，可以先复制为自定义技能。</div>
+            {selected?.isSystemSkill && (
+              <div className="form-message form-message-success">系统技能可直接编辑。保存后会写入数据库，不会被启动时默认种子覆盖。</div>
             )}
 
             {/* ── 基础信息 ── */}
@@ -348,6 +413,16 @@ export default function SkillEditorPage() {
                     {form.enabled ? '已启用' : '已禁用'}
                   </label>
                 </div>
+                <div className="form-row">
+                  <label className="form-label">稀有度</label>
+                  <select className="form-input" value={form.rarity} onChange={(e) => setField('rarity', e.target.value as Rarity)}>
+                    {(Object.keys(RARITY_LABELS) as Rarity[]).map((rarity) => <option key={rarity} value={rarity}>{RARITY_LABELS[rarity]}</option>)}
+                  </select>
+                </div>
+                <div className="form-row">
+                  <label className="form-label">开局技能点消耗</label>
+                  <input className="form-input" type="number" min={0} value={form.skillPointCost} onChange={(e) => setField('skillPointCost', Number(e.target.value))} />
+                </div>
               </div>
               <div className="form-row">
                 <label className="form-label">描述</label>
@@ -362,6 +437,22 @@ export default function SkillEditorPage() {
                 {USAGE_OPTIONS.map((usage) => (
                   <button key={usage} type="button" className={`char-skill-tag ${form.usableAs.includes(usage) ? 'checked' : ''}`} onClick={() => toggleUsage(usage)}>
                     {USAGE_LABELS[usage]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="form-section">
+              <h4>机制分类</h4>
+              <div className="char-skill-grid">
+                {(Object.keys(SKILL_CATEGORY_LABELS) as SkillCategory[]).map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    className={`char-skill-tag ${form.categories.includes(category) ? 'checked' : ''}`}
+                    onClick={() => setField('categories', form.categories.includes(category) ? form.categories.filter((item) => item !== category) : [...form.categories, category])}
+                  >
+                    {SKILL_CATEGORY_LABELS[category]}
                   </button>
                 ))}
               </div>
@@ -510,6 +601,21 @@ export default function SkillEditorPage() {
                         />
                       </div>
                     )}
+                    {effect.type === 'summon' && (
+                      <div className="form-row">
+                        <label className="form-label">召唤生物</label>
+                        <select
+                          className="form-input"
+                          value={(effect.metadata?.creatureTemplateId as string) ?? ''}
+                          onChange={(e) => updateEffectMeta(index, 'creatureTemplateId', e.target.value)}
+                        >
+                          <option value="">使用效果内基础参数</option>
+                          {creatures.map((creature) => (
+                            <option key={creature.id} value={creature.id}>{creature.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -518,11 +624,11 @@ export default function SkillEditorPage() {
 
             {/* ── 操作按钮 ── */}
             <div className="form-actions">
-              <button className="btn btn-primary" type="submit" disabled={loading || isBuiltIn}>
+              <button className="btn btn-primary" type="submit" disabled={loading || !selectedEditable}>
                 {loading ? '保存中...' : '保存'}
               </button>
               <button className="btn btn-secondary" type="button" disabled={!selected} onClick={duplicate}>复制</button>
-              <button className="btn btn-danger" type="button" disabled={!selected || isBuiltIn} onClick={remove}>删除</button>
+              <button className="btn btn-danger" type="button" disabled={!selected || selected.isSystemSkill} onClick={remove}>删除</button>
             </div>
           </form>
         </main>

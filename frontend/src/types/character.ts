@@ -10,6 +10,8 @@ export interface CharacterRead {
   speed: number;
   critRate: number;
   luck: number;
+  rarity: import('./skill').Rarity;
+  skillPointCapacity: number;
   portraitImageUrl: string | null;
   tokenImageUrl: string | null;
   defaultSkillTemplateIds: string[];

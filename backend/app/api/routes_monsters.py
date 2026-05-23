@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import json
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -31,9 +32,14 @@ def record_to_schema(record: MonsterTemplateRecord) -> MonsterTemplateRead:
         speed=record.speed,
         critRate=record.crit_rate,
         luck=record.luck,
+        tempApPerTurn=record.temp_ap_per_turn if record.temp_ap_per_turn is not None else 1,
+        rarity=record.rarity or "common",
         tokenImageUrl=record.token_image_url or DEFAULT_MONSTER_TOKEN,
         portraitImageUrl=record.portrait_image_url or DEFAULT_MONSTER_PORTRAIT,
         enabled=bool(record.enabled),
+        canSpawnAsMonster=bool(record.can_spawn_as_monster),
+        canBeSummoned=bool(record.can_be_summoned),
+        summonSkillTemplateIds=json.loads(record.summon_skill_template_ids or "[]"),
         createdAt=record.created_at,
         updatedAt=record.updated_at,
     )
@@ -67,9 +73,14 @@ def apply_payload(record: MonsterTemplateRecord, payload: MonsterTemplateCreate 
     record.speed = payload.speed
     record.crit_rate = payload.critRate
     record.luck = payload.luck
+    record.temp_ap_per_turn = max(0, payload.tempApPerTurn)
+    record.rarity = payload.rarity
     record.token_image_url = payload.tokenImageUrl or DEFAULT_MONSTER_TOKEN
     record.portrait_image_url = payload.portraitImageUrl or DEFAULT_MONSTER_PORTRAIT
     record.enabled = 1 if payload.enabled else 0
+    record.can_spawn_as_monster = 1 if payload.canSpawnAsMonster else 0
+    record.can_be_summoned = 1 if payload.canBeSummoned else 0
+    record.summon_skill_template_ids = json.dumps(payload.summonSkillTemplateIds)
     record.updated_at = stamp
     if not record.created_at:
         record.created_at = stamp

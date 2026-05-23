@@ -48,6 +48,8 @@ def test_skill_range_and_one_time_instance_are_validated() -> None:
 
     with pytest.raises(TargetingError):
         use_skill(state, "a", "a_bomb_1", template, target_id="b")
+    assert caster.temporaryAP == caster.tempApPerTurn
+    assert caster.skillInstances[0].quantity == 1
     with pytest.raises(GameRuleError):
         use_skill(state, "b", "b_bomb_1", template, target_id="a")
 
@@ -117,6 +119,38 @@ def test_line_skill_hits_non_allied_targets_in_direction() -> None:
         for event in state.recentEvents
         if event.type == "skill_damage"
     ] == [("skill_damage", ["b"], 10), ("skill_damage", ["d"], 10)]
+
+
+def test_area_damage_skips_allies_and_allied_summons() -> None:
+    caster = demo_entity("a", "A", 0, 0, 1, speed=10)
+    enemy = demo_entity("b", "B", 1, 0, 2, speed=8)
+    ally = demo_entity("c", "C", 0, 1, 3, speed=7)
+    summon = demo_entity("s", "Summon", 1, 1, 4, speed=6)
+    ally.factionId = "team"
+    caster.factionId = "team"
+    summon.type = "summon"
+    summon.ownerId = "a"
+    summon.factionId = "team"
+    caster.skillInstances = [SkillInstance("blast_1", "blast", "start_common")]
+    state = create_state(DEFAULT_MAP, [caster, enemy, ally, summon])
+    template = SkillTemplate(
+        id="blast",
+        name="Blast",
+        description="",
+        category="common",
+        cost=1,
+        range=3,
+        targetType="single",
+        areaType="square",
+        areaSize=3,
+        effects=[EffectConfig(type="damage", value=10, metadata={"fixedDamage": True})],
+    )
+
+    use_skill(state, "a", "blast_1", template, target_id="b")
+
+    assert enemy.currentHp == 90
+    assert ally.currentHp == 100
+    assert summon.currentHp == 100
 
 
 def test_damage_sync_link_mirrors_later_damage() -> None:

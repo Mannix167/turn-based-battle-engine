@@ -40,6 +40,30 @@ def test_delayed_damage_triggers_after_remaining_turns() -> None:
     assert target.statusEffects == []
 
 
+def test_delayed_area_damage_skips_allies() -> None:
+    source = demo_entity("a", "A", 0, 0, 1, speed=10)
+    ally = demo_entity("b", "B", 1, 0, 2, speed=8)
+    enemy = demo_entity("c", "C", 1, 1, 3, speed=7)
+    source.factionId = "team"
+    ally.factionId = "team"
+    source.statusEffects.append(
+        StatusEffect(
+            "c4_1",
+            "delayed_area_damage",
+            "a",
+            "a",
+            duration=1,
+            remainingTurns=1,
+            value=10,
+            metadata={"x": 1, "y": 0, "areaType": "square", "areaSize": 3},
+        )
+    )
+    create_state(DEFAULT_MAP, [source, ally, enemy])
+
+    assert ally.currentHp == 100
+    assert enemy.currentHp == 95
+
+
 def test_temporary_stat_modifier_reverts_when_duration_expires() -> None:
     entity = demo_entity("a", "A", 0, 0, 1, speed=10)
     entity.currentAttack += 5

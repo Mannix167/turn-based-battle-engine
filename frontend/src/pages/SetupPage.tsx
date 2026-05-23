@@ -8,9 +8,10 @@ import { listMonsterTemplates } from '../api/monsters'
 import type { MapRead, TerrainType } from '../types/map'
 import { TERRAIN_DEFINITIONS, getTerrainTooltip } from '../data/terrain'
 import type { CharacterRead } from '../types/character'
-import type { SkillTemplateRead } from '../types/skill'
+import type { Rarity, SkillCategory, SkillTemplateRead } from '../types/skill'
+import { RARITY_COLORS, RARITY_LABELS, SKILL_CATEGORY_LABELS } from '../types/skill'
 import type { MonsterTemplateRead } from '../types/monster'
-import type { Position, PreviewStartResponse, StartGameRequest } from '../types/game'
+import type { Faction, Position, PreviewStartResponse, StartGameRequest } from '../types/game'
 
 type SetupStep = 1 | 2 | 3 | 4 | 5
 
@@ -26,8 +27,13 @@ export default function SetupPage() {
   const [positions, setPositions] = useState<Record<string, Position>>({})
   const [placingCharId, setPlacingCharId] = useState<string | null>(null)
   const [selectedSkillIds, setSelectedSkillIds] = useState<Record<string, string[]>>({})
+  const [factions, setFactions] = useState<Faction[]>([])
+  const [characterFactionAssignments, setCharacterFactionAssignments] = useState<Record<string, string>>({})
   const [collapsedSkillLists, setCollapsedSkillLists] = useState<Record<string, boolean>>({})
   const [skillConfigCharId, setSkillConfigCharId] = useState<string | null>(null)
+  const [skillSearch, setSkillSearch] = useState('')
+  const [skillRarityFilter, setSkillRarityFilter] = useState<'all' | Rarity>('all')
+  const [skillCategoryFilter, setSkillCategoryFilter] = useState<'all' | SkillCategory>('all')
   const [randomMonsterCount, setRandomMonsterCount] = useState(2)
   const [randomTreasureCount, setRandomTreasureCount] = useState(1)
   const [monsterPoolIds, setMonsterPoolIds] = useState<string[]>([])
@@ -68,6 +74,8 @@ export default function SetupPage() {
     randomTreasureCount,
     monsterTemplatePoolIds: monsterPoolIds,
     rewardSkillPoolTemplateIds: rewardPoolIds,
+    factions,
+    characterFactionAssignments,
     startSeed: overrideSeed,
   })
 
@@ -99,6 +107,10 @@ export default function SetupPage() {
         })
         return prev.filter((item) => item !== id)
       }
+      setCharacterFactionAssignments((current) => ({
+        ...current,
+        [id]: current[id] ?? `faction_${id}`,
+      }))
       setPlacingCharId(id)
       setSkillConfigCharId((current) => current ?? id)
       return [...prev, id]
@@ -115,15 +127,46 @@ export default function SetupPage() {
     }
   }, [selectedCharIds, skillConfigCharId])
 
-  const toggleCharacterSkill = (characterId: string, skillId: string) => {
+  useEffect(() => {
+    const palette = ['#22c55e', '#3b82f6', '#a855f7', '#f59e0b', '#ef4444', '#14b8a6']
+    setFactions((current) => {
+      const next = [...current]
+      selectedCharIds.forEach((id, index) => {
+        const factionId = characterFactionAssignments[id] ?? `faction_${id}`
+        if (!next.some((faction) => faction.id === factionId)) {
+          next.push({ id: factionId, name: getCharacterName(characters, id), color: palette[index % palette.length] })
+        }
+      })
+      return next
+    })
+  }, [selectedCharIds, characterFactionAssignments, characters])
+
+  const setIndependentFactions = () => {
+    setCharacterFactionAssignments(Object.fromEntries(selectedCharIds.map((id) => [id, `faction_${id}`])))
+  }
+
+  const setAllSameFaction = () => {
+    setFactions((current) => current.some((faction) => faction.id === 'faction_players') ? current : [{ id: 'faction_players', name: '玩家阵营', color: '#22c55e' }, ...current])
+    setCharacterFactionAssignments(Object.fromEntries(selectedCharIds.map((id) => [id, 'faction_players'])))
+  }
+
+  const changeCharacterSkillQuantity = (characterId: string, skillId: string, delta: number) => {
     setPreview(null)
     setSelectedSkillIds((prev) => {
       const current = prev[characterId] ?? []
+      const skill = commonSkills.find((item) => item.id === skillId)
+      const character = characters.find((item) => item.id === characterId)
+      if (!skill || !character) return prev
+      const quantity = current.filter((id) => id === skillId).length
+      if (delta > 0) {
+        if (quantity >= 3) return prev
+        const used = current.reduce((sum, id) => sum + (commonSkills.find((item) => item.id === id)?.skillPointCost ?? 0), 0)
+        if (used + skill.skillPointCost > character.skillPointCapacity) return prev
+        return { ...prev, [characterId]: [...current, skillId] }
+      }
       return {
         ...prev,
-        [characterId]: current.includes(skillId)
-          ? current.filter((item) => item !== skillId)
-          : [...current, skillId],
+        [characterId]: removeOne(current, skillId),
       }
     })
   }
@@ -298,6 +341,48 @@ export default function SetupPage() {
                 />
               ))}
             </div>
+            {selectedCharIds.length > 0 && (
+              <div className="start-section compact">
+                <div className="start-section-head">
+                  <h3>阵营设置</h3>
+                  <div className="faction-actions">
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={setIndependentFactions}>独立阵营</button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={setAllSameFaction}>全部同阵营</button>
+                  </div>
+                </div>
+                <div className="faction-assignment-list">
+                  {factions.filter((faction) => faction.id !== 'monster').map((faction) => (
+                    <div key={faction.id} className="faction-edit-row">
+                      <input
+                        className="form-input"
+                        value={faction.name}
+                        onChange={(event) => setFactions((current) => current.map((item) => item.id === faction.id ? { ...item, name: event.target.value } : item))}
+                      />
+                      <input
+                        className="form-input faction-color-input"
+                        type="color"
+                        value={faction.color}
+                        onChange={(event) => setFactions((current) => current.map((item) => item.id === faction.id ? { ...item, color: event.target.value } : item))}
+                      />
+                    </div>
+                  ))}
+                  {selectedCharIds.map((id) => (
+                    <label key={id} className="form-row">
+                      <span className="form-label">{getCharacterName(characters, id)}</span>
+                      <select
+                        className="form-input"
+                        value={characterFactionAssignments[id] ?? `faction_${id}`}
+                        onChange={(event) => setCharacterFactionAssignments((current) => ({ ...current, [id]: event.target.value }))}
+                      >
+                        {factions.map((faction) => (
+                          <option key={faction.id} value={faction.id}>{faction.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             <WizardNav step={step} canNext={selectedCharIds.length > 0} onPrev={() => goStep(1)} onNext={() => goStep(3)} />
           </section>
         )}
@@ -338,9 +423,15 @@ export default function SetupPage() {
                   character={characters.find((item) => item.id === skillConfigCharId) ?? null}
                   skills={commonSkills}
                   selectedSkillIds={selectedSkillIds[skillConfigCharId] ?? []}
+                  search={skillSearch}
+                  rarityFilter={skillRarityFilter}
+                  categoryFilter={skillCategoryFilter}
+                  onSearchChange={setSkillSearch}
+                  onRarityFilterChange={setSkillRarityFilter}
+                  onCategoryFilterChange={setSkillCategoryFilter}
                   collapsed={collapsedSkillLists[skillConfigCharId] ?? false}
                   onToggleCollapse={() => setCollapsedSkillLists((prev) => ({ ...prev, [skillConfigCharId]: !prev[skillConfigCharId] }))}
-                  onToggleSkill={(skillId) => toggleCharacterSkill(skillConfigCharId, skillId)}
+                  onChangeSkillQuantity={(skillId, delta) => changeCharacterSkillQuantity(skillConfigCharId, skillId, delta)}
                 />
               )}
             </div>
@@ -639,8 +730,9 @@ function CharacterPickCard({
       </span>
       <span className="setup-character-info">
         <strong>{character.name}</strong>
+        <span className="rarity-pill" style={{ borderColor: RARITY_COLORS[character.rarity], color: RARITY_COLORS[character.rarity] }}>{RARITY_LABELS[character.rarity]}</span>
         <span>HP {character.maxHp} / ATK {character.baseAttack} / DEF {character.baseDefense}</span>
-        <small>SPD {character.speed} / CRIT {character.critRate}% / LUCK {character.luck}</small>
+        <small>技能点 {character.skillPointCapacity} / SPD {character.speed} / CRIT {character.critRate}% / LUCK {character.luck}</small>
       </span>
       <span className="setup-character-state">{selected ? '已出战' : '加入队伍'}</span>
     </button>
@@ -651,18 +743,39 @@ function SkillLoadoutPanel({
   character,
   skills,
   selectedSkillIds,
+  search,
+  rarityFilter,
+  categoryFilter,
+  onSearchChange,
+  onRarityFilterChange,
+  onCategoryFilterChange,
   collapsed,
   onToggleCollapse,
-  onToggleSkill,
+  onChangeSkillQuantity,
 }: {
   character: CharacterRead | null
   skills: SkillTemplateRead[]
   selectedSkillIds: string[]
+  search: string
+  rarityFilter: 'all' | Rarity
+  categoryFilter: 'all' | SkillCategory
+  onSearchChange: (value: string) => void
+  onRarityFilterChange: (value: 'all' | Rarity) => void
+  onCategoryFilterChange: (value: 'all' | SkillCategory) => void
   collapsed: boolean
   onToggleCollapse: () => void
-  onToggleSkill: (skillId: string) => void
+  onChangeSkillQuantity: (skillId: string, delta: number) => void
 }) {
   if (!character) return <div className="skill-loadout-panel empty">请选择角色</div>
+  const usedPoints = selectedSkillIds.reduce((sum, id) => sum + (skills.find((skill) => skill.id === id)?.skillPointCost ?? 0), 0)
+  const remainingPoints = Math.max(0, character.skillPointCapacity - usedPoints)
+  const filteredSkills = skills.filter((skill) => {
+    const q = search.trim().toLowerCase()
+    if (q && !skill.name.toLowerCase().includes(q) && !skill.description.toLowerCase().includes(q)) return false
+    if (rarityFilter !== 'all' && skill.rarity !== rarityFilter) return false
+    if (categoryFilter !== 'all' && !skill.categories.includes(categoryFilter)) return false
+    return true
+  })
   return (
     <article className="skill-loadout-panel">
       <header className="skill-loadout-head">
@@ -673,7 +786,7 @@ function SkillLoadoutPanel({
           <div>
             <span>正在配置</span>
             <strong>{character.name}</strong>
-            <small>已选择 {selectedSkillIds.length} / {skills.length}</small>
+            <small>技能点 {usedPoints} / {character.skillPointCapacity}，剩余 {remainingPoints}</small>
           </div>
         </div>
         <button className="btn btn-secondary btn-sm" onClick={onToggleCollapse}>
@@ -681,31 +794,63 @@ function SkillLoadoutPanel({
         </button>
       </header>
       {!collapsed && (
+        <>
+        <div className="loadout-filter-row">
+          <input className="form-input" value={search} onChange={(e) => onSearchChange(e.target.value)} placeholder="搜索技能名称或描述" />
+          <select className="form-input" value={rarityFilter} onChange={(e) => onRarityFilterChange(e.target.value as 'all' | Rarity)}>
+            <option value="all">全部稀有度</option>
+            {(Object.keys(RARITY_LABELS) as Rarity[]).map((rarity) => <option key={rarity} value={rarity}>{RARITY_LABELS[rarity]}</option>)}
+          </select>
+          <select className="form-input" value={categoryFilter} onChange={(e) => onCategoryFilterChange(e.target.value as 'all' | SkillCategory)}>
+            <option value="all">全部分类</option>
+            {(Object.keys(SKILL_CATEGORY_LABELS) as SkillCategory[]).map((category) => <option key={category} value={category}>{SKILL_CATEGORY_LABELS[category]}</option>)}
+          </select>
+        </div>
         <div className="loadout-skill-board">
-          {skills.map((skill) => {
-            const checked = selectedSkillIds.includes(skill.id)
+          {filteredSkills.map((skill) => {
+            const quantity = selectedSkillIds.filter((id) => id === skill.id).length
+            const canAdd = quantity < 3 && usedPoints + skill.skillPointCost <= character.skillPointCapacity
             return (
-              <button
+              <div
                 key={skill.id}
-                className={`loadout-skill-card ${checked ? 'checked' : ''}`}
-                onClick={() => onToggleSkill(skill.id)}
+                role="button"
+                tabIndex={0}
+                className={`loadout-skill-card ${quantity > 0 ? 'checked' : ''}`}
+                onClick={() => canAdd && onChangeSkillQuantity(skill.id, 1)}
+                onKeyDown={(event) => {
+                  if ((event.key === 'Enter' || event.key === ' ') && canAdd) onChangeSkillQuantity(skill.id, 1)
+                }}
               >
                 <span className="loadout-skill-icon">
                   {skill.iconUrl ? <img src={skill.iconUrl} alt={skill.name} /> : '技'}
                 </span>
                 <span className="loadout-skill-main">
-                  <strong>{skill.name}</strong>
+                  <strong>
+                    {skill.name}
+                    <span className="rarity-pill" style={{ borderColor: RARITY_COLORS[skill.rarity], color: RARITY_COLORS[skill.rarity] }}>{RARITY_LABELS[skill.rarity]}</span>
+                  </strong>
                   <span>{skill.description || '暂无技能描述'}</span>
-                  <small>消耗 {skill.cost} AP / 范围 {skill.range} / {skill.areaType}</small>
+                  <small>技能点 {skill.skillPointCost} / AP {skill.cost} / 范围 {skill.range}</small>
                 </span>
-                <span className="loadout-skill-check">{checked ? '已选' : '选择'}</span>
-              </button>
+                <span className="skill-quantity-control" onClick={(event) => event.stopPropagation()}>
+                  <button type="button" disabled={quantity <= 0} onClick={() => onChangeSkillQuantity(skill.id, -1)}>-</button>
+                  <b>{quantity}</b>
+                  <button type="button" disabled={!canAdd} onClick={() => onChangeSkillQuantity(skill.id, 1)}>+</button>
+                </span>
+              </div>
             )
           })}
         </div>
+        </>
       )}
     </article>
   )
+}
+
+function removeOne(values: string[], id: string): string[] {
+  const index = values.indexOf(id)
+  if (index < 0) return values
+  return [...values.slice(0, index), ...values.slice(index + 1)]
 }
 
 function CharacterSkillPanel({

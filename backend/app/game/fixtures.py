@@ -46,6 +46,9 @@ def skill(
     can_summon: bool = True,
     can_terrain: bool = False,
     affect_self_damage: bool = False,
+    rarity: str = "common",
+    skill_point_cost: int | None = None,
+    categories: list[str] | None = None,
 ) -> SkillTemplate:
     return SkillTemplate(
         id=skill_id,
@@ -56,6 +59,11 @@ def skill(
         skillKind="built_in",
         enabled=True,
         usableAs=usable_as or ["common", "reward"],
+        rarity=rarity,
+        skillPointCost=skill_point_cost if skill_point_cost is not None else default_skill_point_cost(rarity),
+        categories=categories or infer_categories(effects),
+        editable=True,
+        isSystemSkill=True,
         cost=cost,
         range=range_value,
         targetType=target_type,
@@ -71,6 +79,38 @@ def skill(
         canTargetTerrain=can_terrain,
         effects=effects,
     )
+
+
+def default_skill_point_cost(rarity: str) -> int:
+    return {
+        "common": 1,
+        "rare": 2,
+        "uncommon": 3,
+        "epic": 4,
+        "legendary": 5,
+    }.get(rarity, 1)
+
+
+def infer_categories(effects: list[EffectConfig]) -> list[str]:
+    categories: set[str] = set()
+    for effect in effects:
+        if effect.type in {"damage", "random_damage", "delayed_damage", "delayed_area_damage", "conditional_execute", "instant_kill"}:
+            categories.add("damage")
+        elif effect.type == "heal":
+            categories.add("heal")
+        elif effect.type in {"add_buff", "modify_stat", "set_stat_temporarily", "extra_turn_next_round"}:
+            categories.add("buff")
+        elif effect.type in {"remove_buff", "remove_alliance"}:
+            categories.add("debuff")
+        elif effect.type in {"add_permanent_ap", "add_temporary_ap", "grant_permanent_ap", "grant_temporary_ap", "grant_random_common_skill", "grant_skill"}:
+            categories.add("resource")
+        elif effect.type in {"alliance", "create_alliance", "link_damage_sync"}:
+            categories.add("alliance")
+        elif effect.type == "summon":
+            categories.add("summon")
+        elif effect.type == "change_terrain":
+            categories.add("terrain")
+    return sorted(categories) or ["special"]
 
 
 COMMON_SKILLS = [

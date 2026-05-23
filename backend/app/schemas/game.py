@@ -16,8 +16,13 @@ class SkillInstanceSchema(BaseModel):
         "monster_reward",
         "kill_reward",
         "random_reward",
+        "summon",
     ]
     isUsed: bool = False
+    quantity: int = 1
+    maxQuantity: int = 3
+    sourceTypes: list[str] = []
+    acquiredAt: str | None = None
 
 
 class StatusEffectSchema(BaseModel):
@@ -37,6 +42,7 @@ class BattleEntitySchema(BaseModel):
     name: str
     ownerId: str | None = None
     controllerId: str | None = None
+    factionId: str = ""
     x: int
     y: int
     maxHp: int
@@ -89,12 +95,24 @@ class StartGameRequest(BaseModel):
     randomTreasureCount: int = Field(default=0, ge=0)
     monsterTemplatePoolIds: list[str] = []
     rewardSkillPoolTemplateIds: list[str] = []
+    rewardSkillTemplateRarities: dict[str, str] = {}
+    rarityDropWeights: dict[str, int] = {}
+    maxSkillStackQuantity: int = 3
+    factions: list["FactionSchema"] = []
+    characterFactionAssignments: dict[str, str] = {}
     startSeed: str | None = None
 
 
 class CharacterPlacement(BaseModel):
     characterId: str
     position: Position
+
+
+class FactionSchema(BaseModel):
+    id: str
+    name: str
+    color: str
+    iconUrl: str | None = None
 
 
 class PreviewMonster(BaseModel):
@@ -113,6 +131,9 @@ class PreviewStartResponse(BaseModel):
     previewMonsters: list[PreviewMonster]
     previewTreasures: list[PreviewTreasure]
     rewardSkillPoolTemplateIds: list[str]
+    rewardSkillTemplateRarities: dict[str, str] = {}
+    rarityDropWeights: dict[str, int] = {}
+    maxSkillStackQuantity: int = 3
     warnings: list[str] = []
 
 
@@ -283,7 +304,11 @@ class GameStateRead(BaseModel):
     entities: list[BattleEntitySchema]
     treasures: list[TreasureEntitySchema] = []
     pendingRewards: dict[str, PendingRewardSchema] = {}
+    factions: list[FactionSchema] = []
     rewardSkillPoolTemplateIds: list[str] = []
+    rewardSkillTemplateRarities: dict[str, str] = {}
+    rarityDropWeights: dict[str, int] = {}
+    maxSkillStackQuantity: int = 3
     startSeed: str | None = None
     recentDamageEvents: list[DamageEventSchema] = []
     recentEvents: list[BattleEventSchema] = []

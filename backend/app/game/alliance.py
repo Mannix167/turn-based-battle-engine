@@ -11,6 +11,10 @@ def are_owner_allies(a: BattleEntity, b: BattleEntity) -> bool:
     return alliance_group_id(a) == alliance_group_id(b)
 
 
+def are_same_faction(a: BattleEntity, b: BattleEntity) -> bool:
+    return bool(a.factionId and b.factionId and a.factionId == b.factionId)
+
+
 def add_alliance(
     state: GameState,
     source_id: str,
@@ -46,6 +50,8 @@ def tick_temporary_alliances(state: GameState) -> None:
 
 
 def are_allies(state: GameState, a: BattleEntity, b: BattleEntity) -> bool:
+    if are_same_faction(a, b):
+        return True
     if are_owner_allies(a, b):
         return True
     groups = alliance_groups(state)
@@ -73,6 +79,12 @@ def alliance_groups(state: GameState) -> dict[str, str]:
     for entity in state.entities.values():
         if entity.isAlive and entity.ownerId and entity.ownerId in parent:
             union(entity.id, entity.ownerId)
+    faction_roots: dict[str, str] = {}
+    for entity in state.entities.values():
+        if entity.id not in parent or not entity.factionId:
+            continue
+        root = faction_roots.setdefault(entity.factionId, entity.id)
+        union(root, entity.id)
     for link in state.alliances:
         union(link.sourceEntityId, link.targetEntityId)
 

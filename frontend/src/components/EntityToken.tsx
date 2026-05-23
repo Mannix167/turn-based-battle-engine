@@ -1,5 +1,5 @@
 import React from 'react'
-import type { BattleEntity, TreasureEntity } from '../types/game'
+import type { BattleEntity, Faction, TreasureEntity } from '../types/game'
 
 interface Props {
   entity: BattleEntity | TreasureEntity
@@ -7,6 +7,7 @@ interface Props {
   isSelected: boolean
   visualEffect?: { type: 'hit' | 'critical' | 'heal' | 'die' | 'cast' | 'move'; amount?: number }
   tokenImageUrl?: string | null
+  faction?: Faction | null
 }
 
 // 根据 entity id 哈希出一种颜色（阵营色）
@@ -46,7 +47,7 @@ const STATUS_LABELS: Record<string, string> = {
   alliance: '结盟',
 }
 
-export default function EntityToken({ entity, isCurrentActor, isSelected, visualEffect, tokenImageUrl }: Props) {
+export default function EntityToken({ entity, isCurrentActor, isSelected, visualEffect, tokenImageUrl, faction }: Props) {
   const isTreasure = entity.type === 'treasure'
   const treasure = isTreasure ? (entity as TreasureEntity) : null
   const battle = !isTreasure ? (entity as BattleEntity) : null
@@ -73,10 +74,10 @@ export default function EntityToken({ entity, isCurrentActor, isSelected, visual
     .filter(Boolean)
     .join(' ')
 
-  const allianceColor = battle ? hashColor(battle.ownerId ?? battle.id) : '#888'
+  const allianceColor = battle ? (faction?.color ?? hashColor(battle.factionId || battle.ownerId || battle.id)) : '#888'
 
   return (
-    <div className={classNames} title={entity.name}>
+    <div className={classNames} title={faction ? `${entity.name} / ${faction.name}` : entity.name}>
       {visualEffect?.type === 'critical' && <div className="token-effect-burst critical">-{visualEffect.amount ?? '暴击'}</div>}
       {visualEffect?.type === 'hit' && <div className="token-effect-burst hit">-{visualEffect.amount ?? '受击'}</div>}
       {visualEffect?.type === 'heal' && <div className="token-effect-burst heal">恢复</div>}
@@ -86,6 +87,7 @@ export default function EntityToken({ entity, isCurrentActor, isSelected, visual
       {battle && (
         <div className="token-faction-dot" style={{ background: allianceColor }} />
       )}
+      {battle?.type === 'summon' && <div className="token-summon-mark">召</div>}
 
       {/* Buff 图标 */}
       {buffIcons.length > 0 && (

@@ -1,8 +1,51 @@
-# 回合制战棋游戏 v2
+# I Love Game
 
-本项目是一个本地优先的回合制网格战棋沙盒。当前重点是稳定 `game-core`、数据结构、API 合同、技能系统、地图/角色/技能编辑器，以及可迭代的前端战斗界面。
+一个本地优先的回合制网格战棋游戏原型。项目采用 FastAPI + SQLite 承载战斗规则、数据持久化和 API 合同，使用 React + Vite + TypeScript 实现地图编辑、角色/技能/小怪管理、开局配置和战斗界面。
+
+当前主线版本为 **v2**。v2 的设计重点来自 `docs/codex_full_monster_random_terrain_animation_uiux_spec.md`：小怪系统、开局随机配置、地形规则升级、技能动画与 UI 反馈完善。
+
+## 功能概览
+
+- 回合制网格战斗：移动、普攻、技能、挖宝、击杀奖励、结盟和胜负判定。
+- 角色系统：角色模板 CRUD、头像/棋子图片上传、属性和专属技能配置。
+- 技能系统：内置技能、自定义技能、启用/禁用、复制、技能图标、通用技能和奖励池。
+- 小怪系统：小怪模板 CRUD、固定/随机小怪入场、受击反击、死亡奖励。
+- 地图系统：地图模板、可用格、部署区、固定小怪、固定藏宝点、随机预览。
+- 地形系统：`normal`、`obstacle`、`lava`、`swamp`、`wood_stake`、`ice`、`thunderstorm`。
+- 开局配置：在一个界面内完成地图、角色、技能、站位、小怪池、奖励池、随机数量和 seed 配置。
+- 战斗表现：后端 `BattleEvent` 驱动前端音效、PixiJS 特效、伤害飘字和战斗日志。
+
+## 技术栈
+
+| 分层 | 技术 |
+| --- | --- |
+| 后端 | Python, FastAPI, Pydantic, SQLAlchemy |
+| 数据库 | SQLite |
+| 前端 | React, TypeScript, Vite |
+| 动画/表现 | PixiJS, CSS 动画, Motion |
+| 测试 | Pytest, TypeScript build |
 
 ## 快速启动
+
+推荐使用根目录脚本：
+
+```bat
+start.bat
+```
+
+脚本会启动：
+
+- 前端：`http://127.0.0.1:5173`
+- 后端：`http://127.0.0.1:8000`
+- API 文档：`http://127.0.0.1:8000/docs`
+
+停止服务：
+
+```bat
+stop.bat
+```
+
+也可以手动启动。
 
 后端：
 
@@ -19,321 +62,211 @@ npm install
 npm run dev
 ```
 
-常用验证：
+## 验证命令
+
+后端测试：
 
 ```bash
 cd backend
 python -m pytest
 ```
 
+前端类型检查和构建：
+
 ```bash
 cd frontend
 npm run build
 ```
 
-也可以直接运行仓库根目录的 `start.bat` / `stop.bat`。
+## 系统流程
 
-## 当前状态
+### 开局到战斗
 
-- 后端：FastAPI + SQLAlchemy + SQLite。
-- 前端：React + Vite + TypeScript。
-- 数据库：`backend/data/game.db`。
-- 上传目录：`backend/uploads`，通过 `/uploads/...` 静态访问。
-- 技能图标：后端动态 SVG 图片接口 `/api/skills/icons/{skill_id}.svg`，技能模板的 `iconUrl` 应指向图片 URL。
+```mermaid
+flowchart TD
+    A[进入开局配置页] --> B[选择地图模板]
+    B --> C[选择出战角色]
+    C --> D[选择角色通用技能]
+    D --> E[设置角色初始站位]
+    E --> F[配置随机小怪数量和藏宝点数量]
+    F --> G[选择小怪池和奖励技能池]
+    G --> H[请求 /api/game/preview-start]
+    H --> I[显示随机预览和告警]
+    I --> J{确认开始?}
+    J -- 否 --> F
+    J -- 是 --> K[请求 /api/game/start]
+    K --> L[后端固化 GameState]
+    L --> M[进入战斗页]
+```
+
+### 战斗结算与表现
+
+```mermaid
+flowchart LR
+    A[玩家操作] --> B[前端提交 API 请求]
+    B --> C[FastAPI 路由层]
+    C --> D[game-core 规则结算]
+    D --> E[更新 GameState]
+    D --> F[生成 BattleEvent / DamageEvent]
+    E --> G[返回 GameStateRead]
+    F --> G
+    G --> H[React 更新 UI]
+    H --> I[PixiEffectsCanvas 播放动画]
+    H --> J[BattleLog / 飘字 / 音效]
+```
+
+### 后端分层
+
+```mermaid
+flowchart TB
+    API[app/api 路由层] --> Schema[app/schemas API 合同]
+    API --> DB[app/db SQLAlchemy + SQLite]
+    API --> Core[app/game game-core]
+    Core --> Map[地图与地形]
+    Core --> Turn[行动点与回合队列]
+    Core --> Skill[技能目标与效果]
+    Core --> Status[状态效果]
+    Core --> Reward[奖励与胜负]
+    DB --> Seed[seed + migrations]
+```
 
 ## 项目结构
 
 ```text
 backend/
   app/
-    api/              FastAPI 路由层
-    db/               SQLAlchemy 模型、数据库连接、seed、轻量迁移
-    game/             game-core，所有战斗规则应在这里
-    schemas/          API 请求/响应合同
-    tests/            API 合同测试
+    api/          FastAPI 路由，负责 HTTP 合同和错误转换
+    db/           SQLAlchemy 模型、数据库连接、seed、轻量迁移
+    game/         game-core，战斗规则、技能、地形、奖励和胜负判定
+    schemas/      Pydantic 请求/响应模型
+    tests/        API 合同测试
+  data/           本地 SQLite 数据库，默认不提交
+  uploads/        本地上传资源，默认不提交
+
 frontend/
+  public/         静态资源，例如地形贴图
   src/
-    api/              前端 API client
-    components/       棋盘、技能卡、角色面板等组件
-    pages/            首页、设置、战斗、编辑器页面
-    types/            前端类型，需与后端 schema 对齐
-docs/                 设计文档和阶段计划
+    api/          API client
+    audio/        音效管理
+    components/   棋盘、实体、技能卡、战斗日志、战斗特效层
+    data/         前端展示配置，例如地形定义
+    pages/        首页、编辑器、开局配置、战斗页
+    types/        前端类型定义
+
+docs/             需求说明、阶段计划和实现规格
 ```
 
-## 后端定位指南
+## 核心模块
 
-核心规则都在 `backend/app/game`，前端不要自行判定命中、伤害、胜负。
+后端规则集中在 `backend/app/game`，前端只负责交互与展示，不重新计算命中、伤害、胜负或奖励。
 
-- 地图与格子：`backend/app/game/map_system.py`
+- 战斗入口：`backend/app/game/engine.py`
+- 地图与地形：`backend/app/game/map_system.py`、`backend/app/game/terrain.py`
 - 行动点：`backend/app/game/action_points.py`
 - 回合队列：`backend/app/game/turn_queue.py`
-- 普攻与技能入口：`backend/app/game/engine.py`
-- 伤害计算：`backend/app/game/damage.py`
-- 技能模板结构：`backend/app/game/skills/skill_template.py`
-- 技能目标校验：`backend/app/game/skills/targeting.py`
-- 技能效果执行：`backend/app/game/skills/effect_engine.py`
-- 状态效果触发：`backend/app/game/status/status_engine.py`
-- 内置地图/技能种子：`backend/app/game/fixtures.py`
-- 击杀奖励：`backend/app/game/reward.py`
-- 结盟与胜负：`backend/app/game/alliance.py`、`backend/app/game/victory.py`
-
-API 路由：
-
-- 角色：`backend/app/api/routes_characters.py`
-- 地图：`backend/app/api/routes_maps.py`
-- 技能：`backend/app/api/routes_skills.py`
-- 游戏：`backend/app/api/routes_game.py`
-- 上传：`backend/app/api/routes_uploads.py`
-
-Schema 合同：
-
-- 游戏状态和操作：`backend/app/schemas/game.py`
-- 技能模板：`backend/app/schemas/skill.py`
-- 地图模板：`backend/app/schemas/map.py`
-- 角色模板：`backend/app/schemas/character.py`
-
-## 前端定位指南
-
-页面：
-
-- 首页：`frontend/src/pages/HomePage.tsx`
-- 游戏设置：`frontend/src/pages/SetupPage.tsx`
-- 战斗页：`frontend/src/pages/BattlePage.tsx`
-- 角色编辑器：`frontend/src/pages/CharacterEditorPage.tsx`
-- 地图编辑器：`frontend/src/pages/MapEditorPage.tsx`
-- 技能管理器：`frontend/src/pages/SkillEditorPage.tsx`
-
-关键组件：
-
-- 棋盘：`frontend/src/components/GridBoard.tsx`
-- 全屏战斗地图：`frontend/src/components/battle/FullscreenMapViewport.tsx`
-- PixiJS 战斗特效层：`frontend/src/components/battle/PixiEffectsCanvas.tsx`
-- 单位面板：`frontend/src/components/EntityPanel.tsx`
-- 技能卡：`frontend/src/components/SkillCard.tsx`
-- 击杀奖励弹窗：`frontend/src/components/KillRewardModal.tsx`
-- 角色表单：`frontend/src/components/CharacterForm.tsx`
-
-API client：
-
-- `frontend/src/api/game.ts`
-- `frontend/src/api/skills.ts`
-- `frontend/src/api/maps.ts`
-- `frontend/src/api/characters.ts`
-
-类型：
-
-- `frontend/src/types/game.ts`
-- `frontend/src/types/skill.ts`
-- `frontend/src/types/map.ts`
-- `frontend/src/types/character.ts`
-
-### 战斗界面交互链路
-
-战斗页主入口是 `frontend/src/pages/BattlePage.tsx`。
-
-- 战斗状态从 `GET /api/game/{gameId}` 加载，核心响应类型是 `GameStateRead`。
-- 地图渲染和点击事件由 `FullscreenMapViewport` 负责。
-- 点击空格调用 `onCellClick`，再由 `BattlePage.handleCellClick` 按当前模式分发为移动、攻击地形、挖宝或技能目标。
-- 点击地图上的单位头像调用 `onEntityClick`，再由 `BattlePage.handleEntityClick` 分发为攻击、技能目标或查看属性。
-- 左侧属性框是查看态浮层，`inspectedEntityId` 为 `null` 时不显示；点击同一单位或关闭按钮会收起。
-- 行动栏、技能栏、顶部提示、属性浮层都在 `BattlePage.tsx` 中组合，样式集中在 `frontend/src/style.css`。
-
-前端地图点击的一个关键点：`FullscreenMapViewport` 不能在左键点到 `.battle-map-cell` 时启动拖拽捕获，否则格子的 `onClick` 可能被父容器吃掉，移动和头像查看会失效。
-
-### 战斗事件与动画
-
-后端通过 `GameState.recentEvents` 向前端发送结构化战斗事件，前端用它驱动音效、PixiJS 特效和顶部提示。
-
-- 事件模型：`backend/app/game/models.py` 的 `BattleEvent`。
-- API schema：`backend/app/schemas/game.py` 的 `BattleEventSchema`。
-- 普攻事件：`backend/app/game/engine.py`。
-- 技能事件：`backend/app/game/skills/effect_engine.py`。
-- 地形事件：`backend/app/game/terrain.py`。
-- 前端事件消费：`BattlePage.tsx` 播放音效，`PixiEffectsCanvas.tsx` 绘制特效。
-
-新增动画时优先新增或复用 `BattleEvent.visualKey`：
-
-- `laser-line`：直线激光，从 `sourcePosition` 画到 `targetPositions` 的最后一个格子。
-- `slash` / `blast`：普通命中或范围爆发。
-- `critical-hit`：暴击冲击特效。
-- `terrain-*`：地形触发、地形受损、地形变化。
-
-伤害飘字不依赖 `recentEvents`，而是由 `recentDamageEvents` 驱动 `EntityToken` 上的 `tokenEffects`。如果某个技能“实际扣血了但没有动画”，优先检查 `recentEvents`；如果“动画有但单位没有飘字”，优先检查 `recentDamageEvents`。
-
-## 技能系统说明
-
-技能模板字段见：
-
-- 后端：`backend/app/schemas/skill.py`
-- 前端：`frontend/src/types/skill.ts`
-
-重要字段：
-
-- `iconUrl`：技能图标图片 URL，必须是可被 `<img>` 使用的图片地址。
-- `skillKind`：`built_in` 或 `configurable`。
-- `enabled`：禁用技能不会出现在开局可选和奖励池，但技能管理器可通过 include disabled 查看。
-- `usableAs`：`character`、`common`、`reward`、`summon`。
-- `targetType`：`self`、`single`、`twoEntities`、`emptyCell`、`direction`。
-- `areaType`：`single`、`line`、`cross`、`square`、`circle`、`none`。
-- `areaSize`：范围技能尺寸。
-- `affectSelfDamage`：控制来源与目标相同时，伤害是否生效。
-- `canTargetMonster`、`canTargetSummon`、`canTargetTreasure`：细分目标类型开关。
-
-新增内置技能时，优先改：
-
-1. `backend/app/game/fixtures.py` 注册 `SkillTemplate`。
-2. 如需新效果，扩展 `EffectType`：
-   - `backend/app/game/skills/skill_template.py`
-   - `backend/app/schemas/skill.py`
-   - `frontend/src/types/skill.ts`
-3. 在 `backend/app/game/skills/effect_engine.py` 添加效果 handler。
-4. 如果需要新目标类型或范围逻辑，改 `targeting.py` 和 `BattlePage.tsx`。
-5. 增加后端测试。
-
-当前第一版通用技能已在 `backend/app/game/fixtures.py` 注册。高复杂技能已有可运行模板和基础行为，后续如果要做严格 DamageEvent、完整 C4 标记、伤害同步递归控制等，应继续扩展 `game-core`，不要放到前端。
-
-### 直线技能
-
-直线技能使用：
-
-- `targetType="direction"`
-- `areaType="line"`
-- 请求参数 `direction: "up" | "down" | "left" | "right"`
-
-后端目标解析在 `backend/app/game/skills/targeting.py::targets_in_line`：
-
-- 从施法者相邻格开始沿方向扫描。
-- 遇到地图边界或阻挡直线效果的地形会停止。
-- 跳过不合法目标，但不会因为友方单位而停止。
-- 合法的多个非盟友目标都会进入 `targets`，伤害效果会逐个结算。
-
-激光的视觉路径由 `effect_engine.py` 生成 `skill_cast` 事件，并在 `targetPositions` 中包含整条路径。对应测试见 `backend/app/game/tests/test_skills.py::test_line_skill_hits_non_allied_targets_in_direction`。
-
-## 双目标技能
-
-例如“乾坤大挪移”的 `targetType` 是 `twoEntities`。
-
-后端请求字段：
-
-```json
-{
-  "casterId": "char_a",
-  "skillInstanceId": "xxx",
-  "targetEntityId": "target_1",
-  "secondTargetEntityId": "target_2"
-}
-```
-
-前端逻辑在 `frontend/src/pages/BattlePage.tsx`：
-
-- 第一次点击目标时保存为 `pendingFirstTargetId`。
-- 第二次点击不同目标时提交 `targetEntityId + secondTargetEntityId`。
-- 同一目标点击两次会提示错误，不会请求后端。
-
-## 行动点规则
-
-行动点逻辑在 `backend/app/game/action_points.py`。
-
-`consume_ap(entity, cost)` 规则：
-
-- 先消耗 `temporaryAP`。
-- 临时行动点不足时，再消耗 `permanentAP`。
-- 总行动点不足时抛出 `ActionPointError`。
-
-已覆盖测试：4 点临时 AP + 1 点永久 AP 可以成功释放 5 费技能，并扣到 0/0。
-
-## 地图系统
-
-地图 API 在 `backend/app/api/routes_maps.py`。
-
-支持：
-
-- `GET /api/maps`
-- `GET /api/maps/{map_id}`
-- `POST /api/maps`
-- `PUT /api/maps/{map_id}`
-- `DELETE /api/maps/{map_id}`
-- `POST /api/maps/{map_id}/duplicate`
-- `POST /api/maps/{map_id}/validate`
-- `POST /api/maps/validate`，用于未保存草稿校验
-- `POST /api/maps/preview-random-generation`
-
-地图编辑器在 `frontend/src/pages/MapEditorPage.tsx`。
-
-### 地形系统
-
-运行时地形规则在 `backend/app/game/terrain.py`，前端展示定义在 `frontend/src/data/terrain.ts`。
-
-新增地形格子时通常要同步：
-
-1. 后端类型和规则：`backend/app/game/models.py`、`backend/app/game/terrain.py`。
-2. API schema：`backend/app/schemas/map.py`。
-3. 前端类型：`frontend/src/types/map.ts`。
-4. 前端展示：`frontend/src/data/terrain.ts` 和 `frontend/src/style.css`。
-5. 地图编辑器：`frontend/src/pages/MapEditorPage.tsx`。
-6. 图片资源：`frontend/public/terrain/*.png`。
-7. 规则测试：`backend/app/game/tests/test_terrain.py`。
-
-注意：`normal` 也是一种地形，也应有图片。战斗全屏地图不会特殊跳过 `normal` 贴图。
-
-## 技能 API
-
-技能 API 在 `backend/app/api/routes_skills.py`。
-
-常用接口：
-
-- `GET /api/skills/templates`：只返回启用技能。
-- `GET /api/skills/templates?include_disabled=true`：包含禁用技能。
-- `GET /api/skills/templates/all`：包含禁用技能。
-- `GET /api/skills/templates/common`：开局通用技能。
-- `GET /api/skills/templates/character`：角色专属技能。
-- `POST /api/skills/templates`
-- `PUT /api/skills/templates/{skill_id}`
-- `DELETE /api/skills/templates/{skill_id}`
-- `POST /api/skills/templates/{skill_id}/duplicate`
-- `GET /api/skills/icons/{skill_id}.svg`
-
-技能管理器应使用 include disabled 接口，否则看不到禁用技能，无法重新启用。
-
-## 数据库与迁移
-
-项目当前使用轻量迁移：
-
-- 模型：`backend/app/db/models.py`
-- 迁移：`backend/app/db/migrations.py`
-- Seed：`backend/app/db/seed.py`
-
-`Base.metadata.create_all()` 不会给已有 SQLite 表自动补列，所以新增 DB 列时要在 `migrations.py` 里补 `ALTER TABLE`。
-
-## 测试建议
-
-后端改动至少运行：
+- 技能模板：`backend/app/game/skills/skill_template.py`
+- 技能目标：`backend/app/game/skills/targeting.py`
+- 技能效果：`backend/app/game/skills/effect_engine.py`
+- 状态效果：`backend/app/game/status/status_engine.py`
+- 奖励与胜负：`backend/app/game/reward.py`、`backend/app/game/victory.py`
+- 小怪与召唤物扩展：`backend/app/game/models.py`、`backend/app/game/summons.py`
+
+前端主要页面：
+
+- `/`：首页
+- `/characters`：角色编辑器
+- `/maps`：地图编辑器
+- `/skills`：技能管理器
+- `/monsters`：小怪管理器
+- `/setup`：开局配置
+- `/battle/:gameId`：战斗界面
+
+## API 概览
+
+| 能力 | 接口前缀 |
+| --- | --- |
+| 角色模板 | `/api/characters`、`/api/character-templates` |
+| 小怪/生物模板 | `/api/monster-templates`、`/api/creature-templates` |
+| 技能模板 | `/api/skills/templates` |
+| 技能图标 | `/api/skills/icons/{skill_id}.svg` |
+| 地图模板 | `/api/maps` |
+| 开局预览 | `/api/game/preview-start` |
+| 正式开局 | `/api/game/start` |
+| 战斗操作 | `/api/game/{game_id}/move`、`basic-attack`、`use-skill`、`dig-treasure` |
+| 上传 | `/api/uploads`、静态访问 `/uploads/...` |
+
+## 版本管理
+
+### v1：基础战棋框架
+
+v1 建立了项目的基础可玩闭环：
+
+- 角色、地图、技能模板的基础 CRUD。
+- FastAPI + SQLite 的本地数据持久化。
+- React/Vite 前端页面框架。
+- 网格地图、行动点、回合队列、普攻、技能释放。
+- 击杀奖励、藏宝点、基础战斗日志。
+- 前后端类型和 API 合同初步对齐。
+
+### v2：随机开局、小怪、地形和表现升级
+
+v2 相对 v1 的主要升级：
+
+- 新增小怪模板和小怪管理页。
+- 小怪成为战斗占格实体，支持固定放置、随机生成、受击反击和死亡奖励。
+- 开局随机性统一收敛到开局配置页，支持随机小怪数量、随机藏宝点数量、小怪池、奖励技能池和 `startSeed`。
+- 新增 `/api/game/preview-start`，支持正式开局前预览随机结果。
+- 正式开局后将随机结果固化进 `GameState`，战斗中不再临时生成随机实体或实时读取全局奖励池。
+- 地图模板只保存固定结构：格子、地形、固定小怪、固定藏宝点、部署区域。
+- 地形扩展为 `normal`、`obstacle`、`lava`、`swamp`、`wood_stake`、`ice`、`thunderstorm`。
+- 移动消耗改为由当前格子的 `terrain.leaveCost` 决定。
+- 障碍物阻挡移动、部署和直线技能。
+- 岩浆、沼泽、木桩、冰面、雷暴具备独立规则和测试目标。
+- 技能表现升级为后端 `BattleEvent` + 前端动画层，动画不参与规则结算。
+- 前端战斗界面增加 PixiJS 特效、音效、飘字、动作预览和更明确的操作反馈。
+
+
+Git tag 示例：
 
 ```bash
-cd backend
-python -m pytest
+git tag -a v2.0.0 -m "Release v2.0.0"
+git push origin v2.0.0
 ```
 
-前端改动至少运行：
+## 开发约定
+
+- 规则只写在 `backend/app/game`，前端不要复制战斗判定逻辑。
+- 修改 API 字段时同步更新 `backend/app/schemas` 和 `frontend/src/types`。
+- 新增数据库列时补充 `backend/app/db/migrations.py`，不要只依赖 `create_all()`。
+- 新增技能效果时优先扩展 `EffectType`、目标解析、效果执行和后端测试。
+- 新增地形时同步后端规则、Pydantic schema、前端类型、前端展示和地图编辑器。
+- 本地数据库、上传素材、缓存和构建产物不进入 Git。
+
+## GitHub 上传建议
+
+如果这是第一次整理 GitHub 仓库，先让 `.gitignore` 生效，并把已经被 Git 跟踪的本地生成文件从索引中移除：
 
 ```bash
-cd frontend
-npm run build
+git status --short
+git rm -r --cached --ignore-unmatch ":glob:**/__pycache__" ":glob:**/*.pyc" ".pytest_cache" "backend/.pytest_cache" "backend/data/game.db" "backend/uploads" "frontend/node_modules" "frontend/dist" "frontend/test-results" "test-results" ".codex" "I_love_game.code-workspace"
+git add .gitignore README.md
+git status --short
 ```
 
-新增规则建议补测试：
+确认状态里不再准备提交数据库、缓存、构建产物和本地上传资源后，再提交源码：
 
-- `backend/app/game/tests/`：纯 game-core 规则。
-- `backend/app/tests/test_api_contract.py`：API 合同和端到端请求。
+```bash
+git add backend/app frontend/src frontend/public docs requirements.txt start.bat stop.bat frontend/package.json frontend/package-lock.json frontend/tsconfig.json frontend/vite.config.ts frontend/index.html
+git commit -m "Prepare project for GitHub"
+git branch -M main
+git remote add origin https://github.com/<your-name>/<your-repo>.git
+git push -u origin main
+```
 
-## 常见坑
+如果已经配置过远程仓库，`git remote add origin ...` 会报已存在。此时改用：
 
-- 前端只做交互和展示，不要在前端决定技能是否合法、是否命中、伤害多少。
-- 新技能如果需要新字段，要同步后端 schema、前端 type、DB 持久化和测试。
-- 如果技能规则正确但动画不对，检查 `recentEvents`、`visualKey`、`targetPositions` 和 `PixiEffectsCanvas.tsx`。
-- 如果伤害扣血正确但只有一个目标飘字，检查 `recentDamageEvents` 是否包含每个目标。
-- 如果点击地图格子或头像无反应，检查 `FullscreenMapViewport` 的 pointer capture 逻辑是否拦截了 `.battle-map-cell` 的 `onClick`。
-- 内置技能 `skillKind=built_in`，技能管理器不可直接编辑，应该复制后生成自定义技能。
-- 禁用技能不会出现在开局选择中，但必须能在技能管理器里看到。
-- 技能图标要用图片 URL，不要只放 emoji 或文字。
-- 修改后端接口后要重启后端服务；Vite 热更新只覆盖前端。
+```bash
+git remote set-url origin https://github.com/<your-name>/<your-repo>.git
+```
+
+`backend/uploads` 中如果有想作为演示素材公开的图片，建议移动到 `frontend/public/demo-assets` 或单独建示例资源目录，再显式提交。

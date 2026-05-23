@@ -5,7 +5,7 @@ import { uploadPortrait, uploadToken } from '../api/uploads'
 import ImageUploader from './ImageUploader'
 import type { CharacterRead, CharacterCreate, CharacterUpdate } from '../types/character'
 import type { SkillTemplateRead } from '../types/skill'
-import { EFFECT_TYPE_LABELS } from '../types/skill'
+import { EFFECT_TYPE_LABELS, RARITY_LABELS, type Rarity } from '../types/skill'
 
 const DEFAULT_FORM: CharacterCreate = {
   name: '',
@@ -18,6 +18,8 @@ const DEFAULT_FORM: CharacterCreate = {
   speed: 10,
   critRate: 10,
   luck: 50,
+  rarity: 'common',
+  skillPointCapacity: 3,
   portraitImageUrl: null,
   tokenImageUrl: null,
   defaultSkillTemplateIds: [],
@@ -64,6 +66,8 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
         speed: character.speed,
         critRate: character.critRate,
         luck: character.luck,
+        rarity: character.rarity ?? 'common',
+        skillPointCapacity: character.skillPointCapacity ?? 3,
         portraitImageUrl: character.portraitImageUrl,
         tokenImageUrl: character.tokenImageUrl,
         defaultSkillTemplateIds: [...character.defaultSkillTemplateIds],
@@ -122,6 +126,8 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
           speed: form.speed,
           critRate: form.critRate,
           luck: form.luck,
+          rarity: form.rarity,
+          skillPointCapacity: form.skillPointCapacity,
           portraitImageUrl: form.portraitImageUrl,
           tokenImageUrl: form.tokenImageUrl,
           defaultSkillTemplateIds: form.defaultSkillTemplateIds ?? [],
@@ -178,6 +184,20 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
             placeholder="角色描述（可选）"
             rows={2}
           />
+        </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label className="form-label">稀有度</label>
+            <select className="form-input" value={form.rarity} onChange={(e) => setField('rarity', e.target.value as Rarity)}>
+              {(Object.keys(RARITY_LABELS) as Rarity[]).map((rarity) => (
+                <option key={rarity} value={rarity}>{RARITY_LABELS[rarity]}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-row">
+            <label className="form-label">可选技能点</label>
+            <input className="form-input" type="number" min={0} value={form.skillPointCapacity} onChange={(e) => setField('skillPointCapacity', parseInt(e.target.value) || 0)} />
+          </div>
         </div>
       </div>
 
