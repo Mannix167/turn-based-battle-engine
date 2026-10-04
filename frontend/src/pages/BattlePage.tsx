@@ -1,7 +1,8 @@
+import GameImage from '../components/GameImage'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getGame, moveEntity, basicAttack, attackTerrain, useSkill, digTreasure, endAction, chooseKillReward } from '../api/game'
+import { getActionPreview, getGame, moveEntity, basicAttack, attackTerrain, useSkill, digTreasure, endAction, chooseKillReward } from '../api/game'
 import { getMap } from '../api/maps'
 import { listCharacters } from '../api/characters'
 import { listAllSkillTemplates } from '../api/skills'
@@ -9,6 +10,9 @@ import EntityPanel from '../components/EntityPanel'
 import BattleLog from '../components/BattleLog'
 import KillRewardModal from '../components/KillRewardModal'
 import FullscreenMapViewport from '../components/battle/FullscreenMapViewport'
+import { useBattlePlayback } from '../battle/useBattlePlayback'
+import { unlockBombAudio } from '../battle/bombAudio'
+import type { TokenVisualEffect } from '../battle/playback'
 import { AudioManager } from '../audio/AudioManager'
 import { fallbackSoundForEvent, type SoundKey } from '../audio/soundRegistry'
 import type { GameStateRead, BattleEntity, SkillInstance, Direction, Position } from '../types/game'
@@ -19,7 +23,6 @@ import { RARITY_COLORS, RARITY_LABELS } from '../types/skill'
 import { TERRAIN_DEFINITIONS } from '../data/terrain'
 
 type InteractionMode = 'idle' | 'moving' | 'attacking' | 'skill-target' | 'skill-direction' | 'dig-target'
-type TokenVisualEffect = { type: 'hit' | 'critical' | 'heal' | 'die' | 'cast' | 'move'; amount?: number }
 type BattleToast = { text: string; kind: 'success' | 'error' | 'info' }
 
 // 简单曼哈顿距离范围高亮（仅做视觉提示，不判断合法性）
@@ -62,6 +65,22 @@ export default function BattlePage() {
   const [battleToast, setBattleToast] = useState<BattleToast | null>(null)
   const [audioMuted, setAudioMuted] = useState(AudioManager.getMuted())
   const [tokenEffects, setTokenEffects] = useState<Record<string, TokenVisualEffect>>({})
+  const [skillAvailability, setSkillAvailability] = useState<Record<string, { valid: boolean; reason?: string | null }>>({})
+  const playback = useBattlePlayback(setGameState, setTokenEffects)
+  const requestLock = useRef(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const actionBusy = isSubmitting || playback.isPlaying
+  const pageAlive = useRef(true)
+  const pageIdRef = useRef(gameId)
+  pageIdRef.current = gameId
+  useEffect(() => {
+    pageAlive.current = true
+    return () => {
+      pageAlive.current = false
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+    }
+  }, [])
+  const isActionLocked = () => requestLock.current || playback.playingRef.current
   const previousCurrentEntityId = useRef<string | null>(null)
   const playedEventIds = useRef<Set<string>>(new Set())
   const toastTimerRef = useRef<number | null>(null)
@@ -125,7 +144,7 @@ export default function BattlePage() {
   }, [gameState?.currentEntityId])
 
   useEffect(() => {
-    if (!gameState) return
+    if (!gameState || gameState.recentEvents.some((event) => event.playback)) return
     gameState.recentEvents.forEach((event) => {
       if (playedEventIds.current.has(event.id)) return
       playedEventIds.current.add(event.id)
@@ -153,61 +172,58 @@ export default function BattlePage() {
     }, 3200)
   }
 
-  const updateState = (newState: GameStateRead, options?: { keepMode?: 'moving' | 'attacking' }) => {
-    const visualEffects: Record<string, TokenVisualEffect> = {}
-    const previousEntities = new Map(gameState?.entities.map((e) => [e.id, e]) ?? [])
-    const damageByTarget = new Map(newState.recentDamageEvents.map((event) => [event.targetEntityId, event]))
-
-    newState.entities.forEach((next) => {
-      const prev = previousEntities.get(next.id)
-      if (!prev) return
-      const damageEvent = damageByTarget.get(next.id)
-      if (damageEvent) {
-        visualEffects[next.id] = {
-          type: damageEvent.isCrit || damageEvent.amount >= Math.max(8, next.maxHp * 0.25) ? 'critical' : 'hit',
-          amount: damageEvent.amount,
-        }
-        return
-      }
-      if (prev.isAlive && !next.isAlive) {
-        visualEffects[next.id] = { type: 'die' }
-        return
-      }
-      if (next.currentHp > prev.currentHp) {
-        visualEffects[next.id] = { type: 'heal' }
-        return
-      }
-      if (next.x !== prev.x || next.y !== prev.y) {
-        visualEffects[next.id] = { type: 'move' }
-      }
-    })
-
-    if (currentEntity && selectedSkill) visualEffects[currentEntity.id] = { type: 'cast' }
-    if (Object.keys(visualEffects).length > 0) {
-      setTokenEffects(visualEffects)
-      window.setTimeout(() => setTokenEffects({}), 760)
+  const performAction = async (
+    operation: () => Promise<GameStateRead>,
+    options?: { keepMode?: 'moving' | 'attacking' },
+  ) => {
+    if (isActionLocked()) return
+    const requestGameId = gameId
+    requestLock.current = true
+    setIsSubmitting(true)
+    unlockBombAudio()
+    try {
+      const result = await operation()
+      if (pageAlive.current && pageIdRef.current === requestGameId) updateState(result, options)
+    } catch (error) {
+      if (pageAlive.current && pageIdRef.current === requestGameId) handleApiError(error)
+    } finally {
+      requestLock.current = false
+      if (pageAlive.current) setIsSubmitting(false)
     }
+  }
+
+  const updateState = (newState: GameStateRead, options?: { keepMode?: 'moving' | 'attacking' }) => {
+    if (gameState && playback.play(gameState, newState, () => finishInteraction(newState, options))) {
+      cancelInteraction()
+      setBattleToast(null)
+      setErrorMessage(null)
+      return
+    }
+    setTokenEffects({})
 
     const previousLogLength = gameState?.log.length ?? 0
     const newLogLines = newState.log.slice(previousLogLength)
     const latestLog = newLogLines.length > 0
       ? newLogLines[newLogLines.length - 1]
-      : newState.log[newState.log.length - 1]
+      : undefined
     if (latestLog) {
-      const hasDamage = newState.recentDamageEvents.length > 0
-      const hasCrit = newState.recentDamageEvents.some((event) => event.isCrit)
+      const hasDamage = newState.entities.some((entity) => entity.currentHp < (gameState?.entities.find((old) => old.id === entity.id)?.currentHp ?? entity.currentHp))
+      const hasCrit = hasDamage && newState.recentDamageEvents.some((event) => event.isCrit)
       showBattleToast(hasCrit ? `${latestLog} 暴击！` : latestLog, hasDamage ? 'success' : 'info')
     }
 
     setGameState(newState)
+    finishInteraction(newState, options)
+  }
+
+  const finishInteraction = (newState: GameStateRead, options?: { keepMode?: 'moving' | 'attacking' }) => {
     setPendingFirstTargetId(null)
     const nextCurrent = newState.entities.find((e) => e.id === newState.currentEntityId) ?? null
     if (options?.keepMode === 'moving' && nextCurrent && mapData) {
-      const totalAp = nextCurrent.temporaryAP + nextCurrent.permanentAP
       setInteractionMode('moving')
       setSelectedSkill(null)
       setSelectedEntityId(nextCurrent.id)
-      setHighlightCells(buildRangeCells(nextCurrent.x, nextCurrent.y, totalAp, mapData.width, mapData.height))
+      setHighlightCells(new Set())
       setHighlightMode('move')
       return
     }
@@ -246,8 +262,36 @@ export default function BattlePage() {
     if (!currentEntity) return []
     return currentEntity.skillInstances
       .map((instance) => ({ instance, template: templates[instance.templateId] }))
-      .filter((item): item is { instance: SkillInstance; template: SkillTemplateRead } => Boolean(item.template))
+      .filter((item): item is { instance: SkillInstance; template: SkillTemplateRead } => Boolean(item.template) && item.instance.quantity > 0)
   }, [currentEntity, templates])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!gameState || !currentEntity || actionBusy || gameState.isFinished) return
+    setSkillAvailability({})
+    void Promise.all(currentSkills.map(async ({ instance }) => {
+      try {
+        const result = await getActionPreview({ gameId: gameState.gameId, actorId: currentEntity.id, actionType: 'skill', skillInstanceId: instance.instanceId })
+        return [instance.instanceId, { valid: result.valid, reason: result.reason }] as const
+      } catch { return [instance.instanceId, { valid: false, reason: '技能状态检查失败，请刷新重试' }] as const }
+    })).then((entries) => { if (!cancelled) setSkillAvailability(Object.fromEntries(entries)) })
+    return () => { cancelled = true }
+  }, [gameState, currentEntity, currentSkills, actionBusy])
+
+  // Only the backend decides which adjacent destinations are legal and affordable.
+  useEffect(() => {
+    let cancelled = false
+    if (!gameState || !currentEntity || !mapData || interactionMode !== 'moving' || actionBusy) return
+    setHighlightCells(new Set())
+    const positions = [{ x: currentEntity.x + 1, y: currentEntity.y }, { x: currentEntity.x - 1, y: currentEntity.y }, { x: currentEntity.x, y: currentEntity.y + 1 }, { x: currentEntity.x, y: currentEntity.y - 1 }]
+    void Promise.all(positions.map(async (position) => {
+      try {
+        const result = await getActionPreview({ gameId: gameState.gameId, actorId: currentEntity.id, actionType: 'move', targetPosition: position })
+        return result.valid ? `${position.x},${position.y}` : null
+      } catch { return null }
+    })).then((cells) => { if (!cancelled) setHighlightCells(new Set(cells.filter((cell): cell is string => cell !== null))) })
+    return () => { cancelled = true }
+  }, [gameState, currentEntity, mapData, interactionMode, actionBusy])
 
   const actionHint = useMemo(() => {
     if (interactionMode === 'moving') return '选择蓝色格子完成移动'
@@ -267,44 +311,34 @@ export default function BattlePage() {
 
   // ——— 操作：移动 ———
   const handleMoveMode = () => {
+    if (isActionLocked()) return
     if (!currentEntity || !mapData) return
     setInteractionMode('moving')
     setSelectedEntityId(currentEntity.id)
-    const tempAp = currentEntity.temporaryAP
-    const permAp = currentEntity.permanentAP
-    const totalAp = tempAp + permAp
-    setHighlightCells(buildRangeCells(currentEntity.x, currentEntity.y, totalAp, mapData.width, mapData.height))
+    setHighlightCells(new Set())
     setHighlightMode('move')
     setErrorMessage(null)
   }
 
   const handleCellClick = async (x: number, y: number) => {
+    if (isActionLocked()) return
     if (!gameId || !currentEntity) return
     if (interactionMode === 'moving') {
-      try {
-        const newState = await moveEntity(gameId, currentEntity.id, { x, y })
-        updateState(newState, { keepMode: 'moving' })
-      } catch (err) { handleApiError(err) }
+      await performAction(() => moveEntity(gameId, currentEntity.id, { x, y }), { keepMode: 'moving' })
     } else if (interactionMode === 'attacking') {
       // 攻击模式点击空格子可能是攻击木桩
       const cellTerrain = getCellTerrain(x, y)
       if (cellTerrain === 'wood_stake') {
-        try {
-          const newState = await attackTerrain(gameId, currentEntity.id, { x, y })
-          updateState(newState, { keepMode: 'attacking' })
-        } catch (err) { handleApiError(err) }
+        await performAction(() => attackTerrain(gameId, currentEntity.id, { x, y }), { keepMode: 'attacking' })
       }
     } else if (interactionMode === 'skill-target' && selectedSkill) {
       const tmpl = templates[selectedSkill.templateId]
       if (tmpl?.targetType === 'emptyCell') {
-        try {
-          const newState = await useSkill(gameId, {
+        await performAction(() => useSkill(gameId, {
             casterId: currentEntity.id,
             skillInstanceId: selectedSkill.instanceId,
             targetCell: { x, y },
-          })
-          updateState(newState)
-        } catch (err) { handleApiError(err) }
+          }))
       }
     } else if (interactionMode === 'dig-target') {
       const treasure = gameState?.treasures.find((item) => !item.isDug && item.x === x && item.y === y)
@@ -316,15 +350,13 @@ export default function BattlePage() {
     } else if (interactionMode === 'idle') {
       const distance = Math.abs(currentEntity.x - x) + Math.abs(currentEntity.y - y)
       if (distance !== 1) return
-      try {
-        const newState = await moveEntity(gameId, currentEntity.id, { x, y })
-        updateState(newState)
-      } catch (err) { handleApiError(err) }
+      await performAction(() => moveEntity(gameId, currentEntity.id, { x, y }))
     }
   }
 
   // ——— 操作：攻击 ———
   const handleAttackMode = () => {
+    if (isActionLocked()) return
     if (!currentEntity || !mapData) return
     setInteractionMode('attacking')
     setSelectedEntityId(currentEntity.id)
@@ -334,28 +366,28 @@ export default function BattlePage() {
   }
 
   const handleEntityClick = async (entityId: string) => {
+    if (isActionLocked()) return
     if (!gameId) return
     if (!currentEntity || gameState?.isFinished) {
       setSelectedEntityId(entityId)
       setInspectedEntityId(entityId)
       return
     }
-    if (interactionMode === 'attacking') {
-      try {
-        const newState = await basicAttack(gameId, currentEntity.id, entityId)
-        updateState(newState, { keepMode: 'attacking' })
-      } catch (err) { handleApiError(err) }
+    if (interactionMode === 'dig-target') {
+      const entity = gameState?.entities.find((item) => item.id === entityId)
+      const treasure = gameState?.treasures.find((item) => !item.isDug && item.x === entity?.x && item.y === entity?.y)
+      if (treasure) await handleDigTreasure(treasure.id)
+      else showBattleToast('该格子不是可挖藏宝点', 'error')
+    } else if (interactionMode === 'attacking') {
+      await performAction(() => basicAttack(gameId, currentEntity.id, entityId), { keepMode: 'attacking' })
     } else if (interactionMode === 'skill-target' && selectedSkill) {
       const tmpl = templates[selectedSkill.templateId]
       if (tmpl?.targetType === 'single') {
-        try {
-          const newState = await useSkill(gameId, {
+        await performAction(() => useSkill(gameId, {
             casterId: currentEntity.id,
             skillInstanceId: selectedSkill.instanceId,
             targetEntityId: entityId,
-          })
-          updateState(newState)
-        } catch (err) { handleApiError(err) }
+          }))
       } else if (tmpl?.targetType === 'twoEntities') {
         if (!pendingFirstTargetId) {
           setPendingFirstTargetId(entityId)
@@ -367,15 +399,12 @@ export default function BattlePage() {
           showBattleToast('第二个目标不能与第一个目标相同', 'error')
           return
         }
-        try {
-          const newState = await useSkill(gameId, {
+        await performAction(() => useSkill(gameId, {
             casterId: currentEntity.id,
             skillInstanceId: selectedSkill.instanceId,
             targetEntityId: pendingFirstTargetId,
             secondTargetEntityId: entityId,
-          })
-          updateState(newState)
-        } catch (err) { handleApiError(err) }
+          }))
       }
     } else {
       // 查看模式：选中目标实体
@@ -391,6 +420,8 @@ export default function BattlePage() {
 
   // ——— 操作：技能 ———
   const handleSkillClick = (instance: SkillInstance) => {
+    if (isActionLocked()) return
+    if (!skillAvailability[instance.instanceId]?.valid) return
     const tmpl = templates[instance.templateId]
     if (!tmpl || !currentEntity || !mapData) return
     setSelectedSkill(instance)
@@ -416,30 +447,25 @@ export default function BattlePage() {
 
   const handleUseSkillSelf = async (instance: SkillInstance) => {
     if (!gameId || !currentEntity) return
-    try {
-      const newState = await useSkill(gameId, {
+    await performAction(() => useSkill(gameId, {
         casterId: currentEntity.id,
         skillInstanceId: instance.instanceId,
         targetEntityId: currentEntity.id,
-      })
-      updateState(newState)
-    } catch (err) { handleApiError(err) }
+      }))
   }
 
   const handleDirectionSkill = async (dir: Direction) => {
     if (!gameId || !currentEntity || !selectedSkill) return
-    try {
-      const newState = await useSkill(gameId, {
+    await performAction(() => useSkill(gameId, {
         casterId: currentEntity.id,
         skillInstanceId: selectedSkill.instanceId,
         direction: dir,
-      })
-      updateState(newState)
-    } catch (err) { handleApiError(err) }
+      }))
   }
 
   // ——— 操作：挖宝 ———
   const handleDigClick = () => {
+    if (isActionLocked()) return
     if (!gameState || !currentEntity || !mapData) return
     const nearbyTreasures = gameState.treasures.filter(
       (t) => !t.isDug && Math.abs(t.x - currentEntity.x) + Math.abs(t.y - currentEntity.y) <= currentEntity.attackRange
@@ -456,28 +482,19 @@ export default function BattlePage() {
 
   const handleDigTreasure = async (treasureId: string) => {
     if (!gameId || !currentEntity) return
-    try {
-      const newState = await digTreasure(gameId, currentEntity.id, treasureId)
-      updateState(newState)
-    } catch (err) { handleApiError(err) }
+    await performAction(() => digTreasure(gameId, currentEntity.id, treasureId))
   }
 
   // ——— 操作：结束行动 ———
   const handleEndAction = async () => {
     if (!gameId || !currentEntity) return
-    try {
-      const newState = await endAction(gameId, currentEntity.id)
-      updateState(newState)
-    } catch (err) { handleApiError(err) }
+    await performAction(() => endAction(gameId, currentEntity.id))
   }
 
   // ——— 击杀奖励 ———
   const handleChooseReward = async (killerId: string, templateId: string) => {
     if (!gameId) return
-    try {
-      const newState = await chooseKillReward(gameId, killerId, templateId)
-      updateState(newState)
-    } catch (err) { handleApiError(err) }
+    await performAction(() => chooseKillReward(gameId, killerId, templateId))
   }
 
   const cancelInteraction = () => {
@@ -491,12 +508,13 @@ export default function BattlePage() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, select, button')) return
-
       if (event.key === 'Escape') {
-        cancelInteraction()
+        if (playback.playingRef.current) playback.skip()
+        else cancelInteraction()
         return
       }
+      if (target?.closest('input, textarea, select, button')) return
+      if (isActionLocked()) return
       if (!currentEntity || gameState?.isFinished) return
 
       const key = event.key.toLowerCase()
@@ -543,9 +561,12 @@ export default function BattlePage() {
   const panelOwnerName = panelEntity?.ownerId ? gameState.entities.find((entity) => entity.id === panelEntity.ownerId)?.name ?? panelEntity.ownerId : null
 
   return (
-    <div className="battle-page fullscreen-battle-page">
+    <div className="battle-page fullscreen-battle-page" aria-busy={actionBusy}>
       <FullscreenMapViewport
         gameState={gameState}
+        playback={playback.active}
+        playbackPhase={playback.phase}
+        interactionLocked={actionBusy}
         mapData={mapData}
         interactionMode={interactionMode}
         selectedEntityId={selectedEntityId}
@@ -633,16 +654,18 @@ export default function BattlePage() {
               onEndAction={handleEndAction}
               interactionMode={interactionMode}
               errorMessage={null}
-              canAct={!!panelEntity && panelEntity.id === currentActor?.id}
+              canAct={!actionBusy && !!panelEntity && panelEntity.id === currentActor?.id}
               panelTitle={panelEntity && panelEntity.id !== currentActor?.id ? '查看单位' : '当前行动单位'}
               faction={panelFaction}
               ownerName={panelOwnerName}
+              allianceNames={(gameState.alliances ?? []).filter((link) => link.sourceEntityId === panelEntity.id || link.targetEntityId === panelEntity.id).map((link) => gameState.entities.find((item) => item.id === (link.sourceEntityId === panelEntity.id ? link.targetEntityId : link.sourceEntityId))?.name ?? '')}
+              skillAvailability={skillAvailability}
             />
           </motion.aside>
         )}
       </AnimatePresence>
 
-      {!gameState.isFinished && currentActor && (
+      {!gameState.isFinished && currentActor && !actionBusy && (
         <motion.div className="floating-command-bar" initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }}>
           <div className="command-context">
             <span>当前指令</span>
@@ -676,6 +699,8 @@ export default function BattlePage() {
             {currentSkills.map(({ instance, template }, index) => (
               <motion.button
                 key={instance.instanceId}
+                disabled={actionBusy || gameState.isFinished || !skillAvailability[instance.instanceId]?.valid}
+                title={`${template.description || template.name}\n范围 ${template.range} / ${template.cost} AP\n${skillAvailability[instance.instanceId]?.reason ?? (skillAvailability[instance.instanceId] ? '可释放' : '正在检查技能状态')}`}
                 layout
                 exit={{ opacity: 0, scale: 0.88 }}
                 whileHover={{ x: -3 }}
@@ -685,10 +710,11 @@ export default function BattlePage() {
                 onClick={() => { AudioManager.play('ui_click'); handleSkillClick(instance) }}
               >
                 <span className="skill-hotkey">{index + 1}</span>
-                <span className="skill-icon">{template.iconUrl ? <img src={template.iconUrl} alt={template.name} /> : '技'}</span>
+                <span className="skill-icon"><GameImage fallbackKind="skill" src={template.iconUrl} alt={template.name} /></span>
                 <span className="skill-copy">
                   <strong>
                     {template.name}
+                    <span className="skill-source-label">{instance.sourceTypes?.includes('character') || instance.source === 'character_default' ? '专属' : instance.sourceTypes?.includes('reward') ? '奖励' : '通用'}</span>
                     <span className="rarity-dot" style={{ backgroundColor: RARITY_COLORS[template.rarity] }} title={RARITY_LABELS[template.rarity]} />
                     {(instance.quantity ?? 1) > 1 && <span className="skill-stack-inline">x{instance.quantity}</span>}
                   </strong>
@@ -701,7 +727,7 @@ export default function BattlePage() {
         </motion.div>
       )}
 
-      {interactionMode === 'skill-direction' && (
+      {interactionMode === 'skill-direction' && !actionBusy && (
         <motion.div className="floating-direction-pad" initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }}>
           <strong>选择方向</strong>
           <div className="direction-buttons">
@@ -731,7 +757,7 @@ export default function BattlePage() {
               onClick={() => toggleEntityInspection(entity.id)}
               title={`${entity.name}${faction ? ` / ${faction.name}` : ''} HP ${entity.currentHp}/${entity.maxHp}`}
             >
-              {portraitImageUrls[entity.id] ? <img src={portraitImageUrls[entity.id] ?? ''} alt={entity.name} /> : <span>{entity.name.charAt(0).toUpperCase()}</span>}
+              <GameImage src={portraitImageUrls[entity.id] ?? entity.portraitImageUrl} fallbackKind={entity.type === 'character' ? 'portrait' : entity.type} alt={entity.name} />
               <i style={{ width: `${hpPct}%` }} />
             </button>
           )
@@ -742,18 +768,27 @@ export default function BattlePage() {
         <BattleLog logs={gameState.log.slice(-8)} />
       </motion.div>
 
+      {actionBusy && (
+        <div className="battle-playback-status" role="status" aria-live="polite" data-playback-phase={playback.phase || 'request'}>
+          <span className="playback-spark" />
+          <span><strong>{playback.isPlaying ? playback.active?.plan.visualKey === 'bomb' ? '炸弹' : playback.active?.plan.label ?? '行动' : '行动'}</strong>{playback.phase || '正在结算'}</span>
+          {playback.isPlaying && <button type="button" onClick={playback.skip}>跳过 <kbd>Esc</kbd></button>}
+        </div>
+      )}
+
       {/* ===== 击杀奖励弹窗 ===== */}
-      {Object.keys(gameState.pendingRewards).length > 0 && (
+      {!actionBusy && Object.keys(gameState.pendingRewards).length > 0 && (
         <KillRewardModal
           gameId={gameState.gameId}
           pendingRewards={gameState.pendingRewards}
           templates={templates}
           onChoose={handleChooseReward}
+          entityNames={Object.fromEntries(gameState.entities.map((entity) => [entity.id, entity.name]))}
         />
       )}
 
       {/* ===== 胜利结算 ===== */}
-      {gameState.isFinished && (
+      {!actionBusy && gameState.isFinished && Object.keys(gameState.pendingRewards).length === 0 && (
         <div className="modal-overlay">
           <div className="modal-box victory-modal">
             <div className="victory-title">游戏结束</div>

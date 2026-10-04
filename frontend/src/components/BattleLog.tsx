@@ -6,7 +6,7 @@ interface Props {
 
 function classifyLog(text: string): string {
   const lower = text.toLowerCase()
-  if (lower.includes('死亡') || lower.includes('killed') || lower.includes('dies')) return 'log-death'
+  if (lower.includes('死亡') || lower.includes('killed') || lower.includes('dies') || lower.includes('died')) return 'log-death'
   if (lower.includes('治疗') || lower.includes('heal') || lower.includes('恢复')) return 'log-heal'
   if (lower.includes('伤害') || lower.includes('damage') || lower.includes('攻击') || lower.includes('attack')) return 'log-damage'
   if (lower.includes('buff') || lower.includes('灼烧') || lower.includes('眩晕') || lower.includes('状态')) return 'log-buff'

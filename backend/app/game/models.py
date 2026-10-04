@@ -88,6 +88,30 @@ class MapCell:
 
 
 @dataclass
+class PlaybackCue:
+    atMs: int
+    kind: str
+    entityId: str | None = None
+    sourceEntityId: str | None = None
+    amount: int | None = None
+    hpAfter: int | None = None
+    isCrit: bool = False
+    sourcePosition: Position | None = None
+    targetPosition: Position | None = None
+
+
+@dataclass
+class BattlePlayback:
+    id: str
+    visualKey: str
+    actorId: str
+    sourcePosition: Position
+    targetPosition: Position
+    durationMs: int
+    cues: list[PlaybackCue] = field(default_factory=list)
+
+
+@dataclass
 class BattleEvent:
     id: str
     type: str
@@ -104,6 +128,7 @@ class BattleEvent:
     value: int | None = None
     visualKey: str | None = None
     soundKey: str | None = None
+    playback: BattlePlayback | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

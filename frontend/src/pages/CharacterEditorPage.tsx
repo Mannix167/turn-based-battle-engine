@@ -1,3 +1,4 @@
+import GameImage from '../components/GameImage'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { deleteCharacter, listCharacters } from '../api/characters'
@@ -91,13 +92,7 @@ export default function CharacterEditorPage() {
                 onClick={() => handleSelect(char)}
               >
                 <div className="character-list-item-portrait">
-                  {char.portraitImageUrl ? (
-                    <img src={char.portraitImageUrl} alt={char.name} />
-                  ) : (
-                    <div className="portrait-placeholder-sm">
-                      {char.name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
+                  <GameImage fallbackKind="portrait" src={char.portraitImageUrl} alt={char.name} />
                 </div>
                 <div className="character-list-item-info">
                   <div className="character-list-item-name">{char.name}</div>

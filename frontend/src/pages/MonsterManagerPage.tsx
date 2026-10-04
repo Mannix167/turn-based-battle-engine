@@ -1,3 +1,4 @@
+import GameImage from '../components/GameImage'
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ImageUploader from '../components/ImageUploader'
@@ -147,7 +148,7 @@ export default function MonsterManagerPage() {
                 onClick={() => choose(monster)}
               >
                 <span className="monster-row-token">
-                  {monster.tokenImageUrl ? <img src={monster.tokenImageUrl} alt={monster.name} /> : monster.name.charAt(0)}
+                  <GameImage fallbackKind="monster" src={monster.tokenImageUrl} alt={monster.name} />
                 </span>
                 <span className="monster-row-main">
                   <strong>{monster.name}</strong>
@@ -171,7 +172,7 @@ export default function MonsterManagerPage() {
           <section className="monster-form-shell">
             <div className="monster-form-hero">
               <div className="monster-portrait-preview">
-                {draft.portraitImageUrl ? <img src={draft.portraitImageUrl} alt={draft.name} /> : <span>{draft.name.charAt(0)}</span>}
+                <GameImage fallbackKind="monster" src={draft.portraitImageUrl} alt={draft.name} />
               </div>
               <div>
                 <label className="form-label">名称</label>

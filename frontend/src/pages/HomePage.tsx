@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import GameImage from '../components/GameImage'
 import { useNavigate } from 'react-router-dom'
 import { listCharacters } from '../api/characters'
 import type { CharacterRead } from '../types/character'
@@ -71,13 +72,7 @@ export default function HomePage() {
               title={`点击编辑 ${char.name}`}
             >
               <div className="character-card-portrait">
-                {char.portraitImageUrl ? (
-                  <img src={char.portraitImageUrl} alt={char.name} />
-                ) : (
-                  <div className="portrait-placeholder">
-                    {char.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
+                <GameImage src={char.portraitImageUrl} fallbackKind="portrait" alt={char.name} />
               </div>
               <div className="character-card-info">
                 <div className="character-card-name">{char.name}</div>

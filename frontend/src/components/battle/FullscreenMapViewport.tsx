@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
+import type { ActivePlayback } from '../../battle/playback'
+import type { TokenVisualEffect } from '../../battle/playback'
 import EntityToken from '../EntityToken'
 import PixiEffectsCanvas from './PixiEffectsCanvas'
 import { getActionPreview } from '../../api/game'
@@ -8,10 +10,12 @@ import type { ActionPreviewResponse, BattleEntity, GameStateRead, Position, Trea
 import type { MapCell, MapRead, TerrainState, TerrainType } from '../../types/map'
 
 type InteractionMode = 'idle' | 'moving' | 'attacking' | 'skill-target' | 'skill-direction' | 'dig-target'
-type TokenVisualEffect = { type: 'hit' | 'critical' | 'heal' | 'die' | 'cast' | 'move'; amount?: number }
 
 interface Props {
   gameState: GameStateRead
+  playback?: ActivePlayback | null
+  playbackPhase?: string
+  interactionLocked?: boolean
   mapData: MapRead
   interactionMode: InteractionMode
   selectedEntityId: string | null
@@ -33,6 +37,9 @@ const PREVIEW_DELAY_MS = 350
 
 export default function FullscreenMapViewport({
   gameState,
+  playback,
+  playbackPhase,
+  interactionLocked = false,
   mapData,
   interactionMode,
   selectedEntityId,
@@ -53,20 +60,29 @@ export default function FullscreenMapViewport({
   const [zoom, setZoom] = useState(1)
   const [offset, setOffset] = useState({ x: 120, y: 92 })
   const [isPanning, setIsPanning] = useState(false)
+  const [viewportSize, setViewportSize] = useState({ width: window.innerWidth, height: window.innerHeight })
   const [hoveredCell, setHoveredCell] = useState<Position | null>(null)
   const [preview, setPreview] = useState<{ data: ActionPreviewResponse; x: number; y: number } | null>(null)
 
   const boardWidth = mapData.width * BASE_CELL_SIZE
   const boardHeight = mapData.height * BASE_CELL_SIZE
 
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const observer = new ResizeObserver(() => setViewportSize({ width: viewport.clientWidth, height: viewport.clientHeight }))
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [])
+
   const cellEntityMap = useMemo(() => {
     const map = new Map<string, BattleEntity | TreasureEntity>()
-    gameState.entities.forEach((entity) => {
-      if (entity.isAlive) map.set(`${entity.x},${entity.y}`, entity)
-    })
     gameState.treasures.forEach((treasure) => map.set(`${treasure.x},${treasure.y}`, treasure))
+    gameState.entities.forEach((entity) => {
+      if (entity.isAlive || tokenEffects[entity.id]?.type === 'die') map.set(`${entity.x},${entity.y}`, entity)
+    })
     return map
-  }, [gameState.entities, gameState.treasures])
+  }, [gameState.entities, gameState.treasures, tokenEffects])
 
   const gameCellMap = useMemo(() => {
     const map = new Map<string, MapCell>()
@@ -104,7 +120,7 @@ export default function FullscreenMapViewport({
     }
   }, [boardHeight, boardWidth, zoom])
 
-  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+  const handleWheel = (event: WheelEvent) => {
     event.preventDefault()
     const rect = viewportRef.current?.getBoundingClientRect()
     if (!rect) return
@@ -115,6 +131,12 @@ export default function FullscreenMapViewport({
     setZoom(nextZoom)
     setOffset(clampOffset({ x: mouse.x - worldX * nextZoom, y: mouse.y - worldY * nextZoom }))
   }
+
+  useEffect(() => {
+    const element = viewportRef.current
+    element?.addEventListener('wheel', handleWheel, { passive: false })
+    return () => element?.removeEventListener('wheel', handleWheel)
+  }, [zoom, offset, clampOffset])
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button === 2) {
@@ -155,7 +177,7 @@ export default function FullscreenMapViewport({
   const schedulePreview = (position: Position, entity?: BattleEntity | TreasureEntity) => {
     clearPreview()
     const actor = gameState.entities.find((item) => item.id === gameState.currentEntityId)
-    if (!actor || interactionMode === 'idle' || interactionMode === 'skill-direction') return
+    if (interactionLocked || !actor || interactionMode === 'idle' || interactionMode === 'skill-direction') return
     const rect = viewportRef.current?.getBoundingClientRect()
     if (!rect) return
     const token = previewTokenRef.current + 1
@@ -190,13 +212,13 @@ export default function FullscreenMapViewport({
     }, PREVIEW_DELAY_MS)
   }
 
-  useEffect(() => clearPreview, [interactionMode, gameState.gameId])
+  useEffect(() => { clearPreview(); return clearPreview }, [interactionMode, gameState.gameId, interactionLocked])
 
   return (
     <div
       ref={viewportRef}
-      className={`fullscreen-map-viewport ${isPanning ? 'is-panning' : ''}`}
-      onWheel={handleWheel}
+      className={`fullscreen-map-viewport ${isPanning ? 'is-panning' : ''} ${playback?.plan.visualKey === 'bomb' && playbackPhase === '命中' ? 'bomb-impact' : ''}`}
+
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -246,9 +268,10 @@ export default function FullscreenMapViewport({
                   hovered ? 'hovered' : '',
                   selected ? 'selected' : '',
                   current ? 'current' : '',
+                  entity && tokenEffects[entity.id] ? 'has-token-effect' : '',
                 ].filter(Boolean).join(' ')}
                 style={{
-                  backgroundImage: valid && terrainDef?.imageUrl ? `url(${terrainDef.imageUrl})` : undefined,
+                  backgroundImage: valid && terrainDef?.imageUrl ? `${gameCell?.tileImageUrl || mapCell?.tileImageUrl ? `url(${JSON.stringify(gameCell?.tileImageUrl || mapCell?.tileImageUrl)}), ` : ''}url(${terrainDef.imageUrl})` : undefined,
                 }}
                 title={`(${x},${y}) ${getTerrainTooltip(terrainType, terrainState)}`}
                 onMouseEnter={() => {
@@ -260,7 +283,7 @@ export default function FullscreenMapViewport({
                   clearPreview()
                 }}
                 onClick={() => {
-                  if (!valid || dragRef.current?.moved) return
+                  if (interactionLocked || !valid || dragRef.current?.moved) return
                   if (entity && 'isAlive' in entity && entity.isAlive) onEntityClick(entity.id)
                   else {
                     onInspectCell?.(x, y)
@@ -276,12 +299,14 @@ export default function FullscreenMapViewport({
                 )}
                 {entity && (
                   <EntityToken
+                    key={entity.id + ('isAlive' in entity ? tokenEffects[entity.id]?.id ?? '' : '')}
                     entity={entity}
                     isCurrentActor={Boolean(current)}
                     isSelected={Boolean(selected)}
-                    visualEffect={'isAlive' in entity ? tokenEffects[entity.id] : undefined}
+                    visualEffect={tokenEffects[entity.id]}
                     tokenImageUrl={'isAlive' in entity ? tokenImageUrls[entity.id] : null}
                     faction={'isAlive' in entity ? gameState.factions.find((faction) => faction.id === entity.factionId) : null}
+                    allianceNames={(gameState.alliances ?? []).filter((link) => link.sourceEntityId === entity.id || link.targetEntityId === entity.id).map((link) => gameState.entities.find((item) => item.id === (link.sourceEntityId === entity.id ? link.targetEntityId : link.sourceEntityId))?.name ?? '')}
                   />
                 )}
               </button>
@@ -292,11 +317,25 @@ export default function FullscreenMapViewport({
 
       <EffectLayer
         events={gameState.recentEvents}
+        playback={playback}
         gridToScreen={gridToScreen}
-        width={viewportRef.current?.clientWidth ?? window.innerWidth}
-        height={viewportRef.current?.clientHeight ?? window.innerHeight}
+        width={viewportSize.width}
+        height={viewportSize.height}
         cellSize={BASE_CELL_SIZE * zoom}
       />
+
+      {/* Numbers sit above Pixi effects and remain attached to map coordinates. */}
+      <div className="battle-number-layer" aria-hidden="true">
+        {Object.entries(tokenEffects).map(([entityId, effect]) => {
+          if (!['hit', 'critical', 'heal', 'buff'].includes(effect.type)) return null
+          const entity = gameState.entities.find((item) => item.id === entityId)
+          if (!entity) return null
+          const point = gridToScreen(entity)
+          return <div key={effect.id ?? entityId} className={`token-effect-burst ${effect.type}`} style={{ left: point.x - 2 * zoom, top: point.y - 42 * zoom }}>
+            {effect.type === 'heal' ? `+${effect.amount ?? 0}` : effect.type === 'buff' ? '状态变化' : `-${effect.amount ?? 0}`}
+          </div>
+        })}
+      </div>
 
       <div className="map-camera-readout">
         <span>{Math.round(zoom * 100)}%</span>

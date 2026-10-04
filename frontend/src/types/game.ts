@@ -92,6 +92,28 @@ export interface GameMapRead {
   cells: import('./map').MapCell[]
 }
 
+export interface PlaybackCue {
+  atMs: number
+  kind: 'cast' | 'launch' | 'impact' | 'damage' | 'counter' | 'death'
+  entityId?: string | null
+  sourceEntityId?: string | null
+  amount?: number | null
+  hpAfter?: number | null
+  isCrit: boolean
+  sourcePosition?: Position | null
+  targetPosition?: Position | null
+}
+
+export interface BattlePlayback {
+  id: string
+  visualKey: string
+  actorId: string
+  sourcePosition: Position
+  targetPosition: Position
+  durationMs: number
+  cues: PlaybackCue[]
+}
+
 export interface BattleEvent {
   id: string
   type: string
@@ -108,6 +130,7 @@ export interface BattleEvent {
   value?: number | null
   visualKey?: string | null
   soundKey?: string | null
+  playback?: BattlePlayback | null
   metadata?: Record<string, unknown>
 }
 
@@ -116,6 +139,12 @@ export interface Faction {
   name: string
   color: string
   iconUrl?: string | null
+}
+
+export interface AllianceLink {
+  sourceEntityId: string
+  targetEntityId: string
+  remainingTurns?: number | null
 }
 
 export interface GameStateRead {
@@ -129,6 +158,7 @@ export interface GameStateRead {
   treasures: TreasureEntity[]
   pendingRewards: Record<string, PendingReward>
   factions: Faction[]
+  alliances: AllianceLink[]
   rewardSkillPoolTemplateIds: string[]
   rewardSkillTemplateRarities: Record<string, string>
   rarityDropWeights: Record<string, number>

@@ -60,6 +60,7 @@ def serialize_state(state: GameState) -> GameStateRead:
         treasures=[{"type": "treasure", **asdict(treasure)} for treasure in state.treasures.values()],
         pendingRewards={key: asdict(value) for key, value in state.pendingRewards.items()},
         factions=[asdict(faction) for faction in state.factions.values()],
+        alliances=[asdict(link) for link in state.alliances],
         rewardSkillPoolTemplateIds=state.rewardSkillPoolTemplateIds,
         rewardSkillTemplateRarities=state.rewardSkillTemplateRarities,
         rarityDropWeights=state.rarityDropWeights,
@@ -573,6 +574,8 @@ def ap_cost_response(actor: BattleEntity, total_cost: int) -> dict:
 
 
 def preview_move(state: GameState, actor: BattleEntity, payload: ActionPreviewRequest) -> ActionPreviewResponse:
+    if engine.has_status(actor, "root"):
+        return ActionPreviewResponse(valid=False, actionType="move", reason="Entity is rooted and cannot move")
     if payload.targetPosition is None:
         return ActionPreviewResponse(valid=False, actionType="move", reason="Missing target position")
     target = Position(payload.targetPosition.x, payload.targetPosition.y)
@@ -656,6 +659,8 @@ def preview_attack(state: GameState, actor: BattleEntity, payload: ActionPreview
 
 
 def preview_dig(state: GameState, actor: BattleEntity, payload: ActionPreviewRequest) -> ActionPreviewResponse:
+    if actor.temporaryAP + actor.permanentAP < 1:
+        return ActionPreviewResponse(valid=False, actionType="dig", reason="Not enough AP", apCost=ap_cost_response(actor, 1))
     if payload.targetPosition is None:
         return ActionPreviewResponse(valid=False, actionType="dig", reason="Missing treasure position", apCost=ap_cost_response(actor, 1))
     pos = Position(payload.targetPosition.x, payload.targetPosition.y)
@@ -664,7 +669,7 @@ def preview_dig(state: GameState, actor: BattleEntity, payload: ActionPreviewReq
         return ActionPreviewResponse(valid=False, actionType="dig", reason="No treasure at target", apCost=ap_cost_response(actor, 1))
     if manhattan(actor.position, pos) > actor.attackRange:
         return ActionPreviewResponse(valid=False, actionType="dig", reason="Treasure is out of attack range", apCost=ap_cost_response(actor, 1))
-    success = max(0, min(95, actor.luck))
+    success = max(0, min(100, actor.luck))
     return ActionPreviewResponse(
         valid=True,
         actionType="dig",
@@ -675,14 +680,20 @@ def preview_dig(state: GameState, actor: BattleEntity, payload: ActionPreviewReq
 
 
 def preview_skill(state: GameState, actor: BattleEntity, payload: ActionPreviewRequest, db: Session) -> ActionPreviewResponse:
+    if engine.has_status(actor, "silence"):
+        return ActionPreviewResponse(valid=False, actionType="skill", reason="Entity is silenced and cannot use skills")
     if not payload.skillInstanceId:
         return ActionPreviewResponse(valid=False, actionType="skill", reason="Missing skill instance")
     instance = next((skill for skill in actor.skillInstances if skill.instanceId == payload.skillInstanceId), None)
     if not instance:
         return ActionPreviewResponse(valid=False, actionType="skill", reason="Skill instance not found")
+    if instance.quantity <= 0:
+        return ActionPreviewResponse(valid=False, actionType="skill", reason="Skill stack is empty")
     template = get_template_by_id(instance.templateId, db)
     if not template:
         return ActionPreviewResponse(valid=False, actionType="skill", reason="Skill template not found")
+    if not template.enabled:
+        return ActionPreviewResponse(valid=False, actionType="skill", reason="Skill template is disabled")
     if actor.temporaryAP + actor.permanentAP < template.cost:
         return ActionPreviewResponse(valid=False, actionType="skill", reason="Not enough AP", apCost=ap_cost_response(actor, template.cost))
     affected: list[dict] = []

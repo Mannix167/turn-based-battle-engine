@@ -13,7 +13,9 @@ async def save_raw_upload(request: Request, folder: str, filename: str | None) -
     content = await request.body()
     if not content:
         raise HTTPException(status_code=400, detail="Upload body is empty")
-    safe_name = Path(filename or f"{uuid4().hex}.bin").name
+    # Each upload gets a new URL: no accidental overwrites or stale browser cache.
+    suffix = Path(filename or "image.bin").suffix.lower()
+    safe_name = f"{uuid4().hex}{suffix}"
     target_dir = UPLOAD_DIR / folder
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / safe_name

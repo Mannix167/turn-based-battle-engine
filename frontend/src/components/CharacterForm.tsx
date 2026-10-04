@@ -3,6 +3,7 @@ import { createCharacter, updateCharacter } from '../api/characters'
 import { listCharacterSkillTemplates } from '../api/skills'
 import { uploadPortrait, uploadToken } from '../api/uploads'
 import ImageUploader from './ImageUploader'
+import GameImage from './GameImage'
 import type { CharacterRead, CharacterCreate, CharacterUpdate } from '../types/character'
 import type { SkillTemplateRead } from '../types/skill'
 import { EFFECT_TYPE_LABELS, RARITY_LABELS, type Rarity } from '../types/skill'
@@ -268,7 +269,7 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
               const tmpl = skillMap.get(id)
               return tmpl ? (
                 <span key={id} className="selected-skill-chip">
-                  {tmpl.iconUrl ? <img className="selected-skill-chip-icon" src={tmpl.iconUrl} alt="" /> : <span className="selected-skill-chip-icon">技</span>}
+                  <GameImage className="selected-skill-chip-icon" src={tmpl.iconUrl} fallbackKind="skill" alt={tmpl.name} />
                   {tmpl.name}
                   <button type="button" className="chip-remove" onClick={() => handleSkillToggle(id)}>✕</button>
                 </span>
@@ -300,7 +301,7 @@ export default function CharacterForm({ character, onSaved }: CharacterFormProps
                 <div className="skill-select-left">
                   <input type="checkbox" checked={checked} onChange={() => handleSkillToggle(tmpl.id)} />
                   <span className="skill-select-icon">
-                    {tmpl.iconUrl ? <img src={tmpl.iconUrl} alt={tmpl.name} /> : '技'}
+                    <GameImage src={tmpl.iconUrl} fallbackKind="skill" alt={tmpl.name} />
                   </span>
                   <div className="skill-select-info">
                     <div className="skill-select-name">{tmpl.name}</div>

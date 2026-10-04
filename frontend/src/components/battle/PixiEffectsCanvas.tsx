@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Application, Container, Graphics } from 'pixi.js'
+import { drawBomb } from '../../battle/drawBomb'
+import type { ActivePlayback } from '../../battle/playback'
 import type { BattleEvent, Position } from '../../types/game'
 
 interface Props {
   events: BattleEvent[]
+  playback?: ActivePlayback | null
   gridToScreen: (position: Position) => { x: number; y: number }
   width: number
   height: number
@@ -28,12 +31,15 @@ const EFFECT_COLORS: Record<string, number> = {
   default: 0xf5c451,
 }
 
-export default function PixiEffectsCanvas({ events, gridToScreen, width, height, cellSize }: Props) {
+export default function PixiEffectsCanvas({ events, playback, gridToScreen, width, height, cellSize }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const appRef = useRef<Application | null>(null)
   const layerRef = useRef<Container | null>(null)
   const seenRef = useRef<Set<string>>(new Set())
   const [failed, setFailed] = useState(false)
+  const [ready, setReady] = useState(false)
+  const latest = useRef({ playback, gridToScreen, cellSize })
+  latest.current = { playback, gridToScreen, cellSize }
 
   useEffect(() => {
     if (failed) return
@@ -58,8 +64,16 @@ export default function PixiEffectsCanvas({ events, gridToScreen, width, height,
       app.stage.addChild(layer)
       app.canvas.className = 'pixi-effects-canvas'
       hostRef.current?.appendChild(app.canvas)
+      const bomb = new Graphics()
+      app.stage.addChild(bomb)
+      app.ticker.add(() => {
+        const current = latest.current
+        if (current.playback?.plan.visualKey === 'bomb') drawBomb(bomb, current.playback, performance.now(), current.gridToScreen, current.cellSize)
+        else bomb.clear()
+      })
+      setReady(true)
     }).catch(() => {
-      setFailed(true)
+      if (!disposed) setFailed(true)
     })
 
     return () => {
@@ -83,11 +97,12 @@ export default function PixiEffectsCanvas({ events, gridToScreen, width, height,
   useEffect(() => {
     const app = appRef.current
     const layer = layerRef.current
-    if (!app || !layer) return
+    if (!app || !layer || !ready || events.some((event) => event.playback) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
 
     events.forEach((event) => {
       if (seenRef.current.has(event.id)) return
       seenRef.current.add(event.id)
+      if (seenRef.current.size > 128) seenRef.current.delete(seenRef.current.values().next().value!)
 
       const positions = event.targetPositions?.length
         ? event.targetPositions
@@ -126,12 +141,17 @@ export default function PixiEffectsCanvas({ events, gridToScreen, width, height,
       }
 
       layer.addChild(effect)
+      // Scale about the target instead of the canvas origin; track camera changes.
+      effect.pivot.set(center.x, center.y)
+      effect.position.set(center.x, center.y)
       const start = performance.now()
       const duration = 720
       const tick = () => {
         const t = Math.min(1, (performance.now() - start) / duration)
         effect.alpha = 1 - t
-        effect.scale.set(1 + t * 1.35)
+        const point = latest.current.gridToScreen(positions[0])
+        effect.position.set(point.x, point.y)
+        effect.scale.set(latest.current.cellSize / cellSize * (1 + t * 0.35))
         if (t >= 1) {
           app.ticker.remove(tick)
           effect.destroy()
@@ -139,7 +159,7 @@ export default function PixiEffectsCanvas({ events, gridToScreen, width, height,
       }
       app.ticker.add(tick)
     })
-  }, [events, gridToScreen, cellSize])
+  }, [events, gridToScreen, cellSize, ready])
 
   if (failed) return null
   return <div ref={hostRef} className="pixi-effects-host" aria-hidden="true" />

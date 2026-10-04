@@ -1,34 +1,10 @@
+import GameImage from './GameImage'
 import React from 'react'
 import type { BattleEntity, Faction, SkillInstance } from '../types/game'
 import type { SkillTemplateRead } from '../types/skill'
 import SkillCard from './SkillCard'
-
-const BUFF_ICONS: Record<string, string> = {
-  burn: '灼',
-  stun: '晕',
-  sync_hp: '链',
-  damage_sync_link: '链',
-  next_damage_multiplier: '爆',
-  silence: '默',
-  root: '禁',
-  adrenaline: '肾',
-  delayed_damage: '延',
-  stat_modifier: '属',
-  alliance: '盟',
-}
-const BUFF_LABELS: Record<string, string> = {
-  burn: '灼烧',
-  stun: '眩晕',
-  sync_hp: '血量同步',
-  damage_sync_link: '伤害同步',
-  next_damage_multiplier: '下一次伤害强化',
-  silence: '沉默',
-  root: '禁走',
-  adrenaline: '肾上腺素',
-  delayed_damage: '延迟伤害',
-  stat_modifier: '属性变化',
-  alliance: '结盟',
-}
+import StatusIcon from './StatusIcon'
+import { statusVisual } from '../data/assets'
 
 interface Props {
   entity: BattleEntity | null
@@ -45,6 +21,8 @@ interface Props {
   panelTitle?: string
   faction?: Faction | null
   ownerName?: string | null
+  allianceNames?: string[]
+  skillAvailability?: Record<string, { valid: boolean; reason?: string | null }>
 }
 
 function ApDots({ count, color, label }: { count: number; color: string; label: string }) {
@@ -79,6 +57,8 @@ export default function EntityPanel({
   panelTitle,
   faction,
   ownerName,
+  allianceNames = [],
+  skillAvailability = {},
 }: Props) {
   if (!entity) {
     return (
@@ -97,13 +77,7 @@ export default function EntityPanel({
       {panelTitle && <div className="panel-view-title">{panelTitle}</div>}
       <div className="panel-portrait-row">
         <div className="panel-portrait">
-          {portraitImageUrl ? (
-            <img src={portraitImageUrl} alt={entity.name} />
-          ) : (
-            <div className="panel-portrait-placeholder">
-              {entity.name.charAt(0).toUpperCase()}
-            </div>
-          )}
+          <GameImage fallbackKind={entity.type === 'character' ? 'portrait' : entity.type} src={portraitImageUrl ?? entity.portraitImageUrl} alt={entity.name} />
         </div>
         <div className="panel-name-block">
           <div className="panel-name">{entity.name}</div>
@@ -116,6 +90,7 @@ export default function EntityPanel({
             </div>
           )}
           {entity.type === 'summon' && ownerName && <div className="panel-owner-tag">主人：{ownerName}</div>}
+          {allianceNames.length > 0 && <div className="panel-alliance-tag">结盟：{allianceNames.join('、')}</div>}
         </div>
       </div>
 
@@ -161,9 +136,9 @@ export default function EntityPanel({
               <div
                 key={se.id}
                 className="panel-buff-item"
-                title={`${BUFF_LABELS[se.type] ?? se.type}${se.remainingTurns != null ? ` (${se.remainingTurns}回合)` : ''}`}
+                title={`${statusVisual(se.type).label}${se.remainingTurns != null ? ` (${se.remainingTurns}回合)` : ''}`}
               >
-                <span className="panel-buff-icon">{BUFF_ICONS[se.type] ?? '状'}</span>
+                <span className="panel-buff-icon"><StatusIcon type={se.type} /></span>
                 <span className="panel-buff-turns">
                   {se.remainingTurns != null ? se.remainingTurns : '∞'}
                 </span>
@@ -188,6 +163,8 @@ export default function EntityPanel({
                   template={tmpl}
                   isSelected={selectedSkillId === inst.instanceId}
                   onClick={() => onSkillClick(inst)}
+                  disabled={!canAct || inst.quantity <= 0 || skillAvailability[inst.instanceId]?.valid === false}
+                  unavailableReason={!canAct ? '当前为查看模式' : skillAvailability[inst.instanceId]?.reason ?? undefined}
                 />
               )
             })}

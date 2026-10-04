@@ -1,3 +1,4 @@
+import GameImage from '../components/GameImage'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -346,7 +347,7 @@ export default function SkillEditorPage() {
                 onClick={() => selectSkill(skill)}
               >
                 <div className="skill-editor-icon">
-                  {skill.iconUrl ? <img src={skill.iconUrl} alt={skill.name} /> : <span>技</span>}
+                  <GameImage fallbackKind="skill" src={skill.iconUrl} alt={skill.name} />
                 </div>
                 <div className="skill-editor-list-info">
                   <div className="skill-editor-list-name">

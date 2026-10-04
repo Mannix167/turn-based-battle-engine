@@ -4,6 +4,10 @@
 
 当前主线版本为 **v2**。v2 的设计重点来自 `docs/codex_full_monster_random_terrain_animation_uiux_spec.md`：小怪系统、开局随机配置、地形规则升级、技能动画与 UI 反馈完善。
 
+## 当前开发阶段
+
+第 11 阶段基础美术接入与反馈已完成核对和修复，详见 [验收记录](docs/stage11_art_audit.md)。下一阶段目标为 **前端 UI 优化和技能动画完善**，具体要求由用户后续补充，详见 [阶段计划](docs/art_implementation_plan_stage11.md#19-下一阶段行动方案第-12-阶段)。资源组织和替换方式见 [美术流程](docs/art_pipeline.md)。
+
 ## 功能概览
 
 - 回合制网格战斗：移动、普攻、技能、挖宝、击杀奖励、结盟和胜负判定。
@@ -71,6 +75,12 @@ cd backend
 python -m pytest
 ```
 
+前端播放队列与基础动画计划测试（Node.js 24）：
+
+```bash
+node --test frontend/tests/*.test.mjs
+```
+
 前端类型检查和构建：
 
 ```bash
@@ -110,9 +120,11 @@ flowchart LR
     D --> F[生成 BattleEvent / DamageEvent]
     E --> G[返回 GameStateRead]
     F --> G
-    G --> H[React 更新 UI]
-    H --> I[PixiEffectsCanvas 播放动画]
-    H --> J[BattleLog / 飘字 / 音效]
+    G --> H[生成或读取播放时间线]
+    H --> I[播放队列驱动 Pixi / CSS / 飘字 / 音效]
+    I --> J[按时间点更新展示状态]
+    J --> K[播放完成后同步最终结果和日志]
+    K --> L[显示奖励或胜负结果]
 ```
 
 ### 后端分层

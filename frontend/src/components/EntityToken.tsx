@@ -1,13 +1,18 @@
 import React from 'react'
 import type { BattleEntity, Faction, TreasureEntity } from '../types/game'
+import GameImage from './GameImage'
+import StatusIcon from './StatusIcon'
+import { statusVisual } from '../data/assets'
+import type { TokenVisualEffect } from '../battle/playback'
 
 interface Props {
   entity: BattleEntity | TreasureEntity
   isCurrentActor: boolean
   isSelected: boolean
-  visualEffect?: { type: 'hit' | 'critical' | 'heal' | 'die' | 'cast' | 'move'; amount?: number }
+  visualEffect?: TokenVisualEffect
   tokenImageUrl?: string | null
   faction?: Faction | null
+  allianceNames?: string[]
 }
 
 // 根据 entity id 哈希出一种颜色（阵营色）
@@ -18,36 +23,7 @@ function hashColor(id: string): string {
   return `hsl(${hue},70%,55%)`
 }
 
-// Buff type → emoji
-const BUFF_ICONS: Record<string, string> = {
-  burn: '灼',
-  stun: '晕',
-  sync_hp: '链',
-  damage_sync_link: '链',
-  next_damage_multiplier: '爆',
-  silence: '默',
-  root: '禁',
-  adrenaline: '肾',
-  delayed_damage: '延',
-  stat_modifier: '属',
-  alliance: '盟',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  burn: '灼烧',
-  stun: '眩晕',
-  sync_hp: '血量同步',
-  damage_sync_link: '伤害同步',
-  next_damage_multiplier: '下一次伤害强化',
-  silence: '沉默',
-  root: '禁走',
-  adrenaline: '肾上腺素',
-  delayed_damage: '延迟伤害',
-  stat_modifier: '属性变化',
-  alliance: '结盟',
-}
-
-export default function EntityToken({ entity, isCurrentActor, isSelected, visualEffect, tokenImageUrl, faction }: Props) {
+export default function EntityToken({ entity, isCurrentActor, isSelected, visualEffect, tokenImageUrl, faction, allianceNames = [] }: Props) {
   const isTreasure = entity.type === 'treasure'
   const treasure = isTreasure ? (entity as TreasureEntity) : null
   const battle = !isTreasure ? (entity as BattleEntity) : null
@@ -59,8 +35,8 @@ export default function EntityToken({ entity, isCurrentActor, isSelected, visual
 
   const buffIcons = battle
     ? battle.statusEffects
-        .slice(0, 3)
-        .map((se) => ({ icon: BUFF_ICONS[se.type] ?? '状', label: STATUS_LABELS[se.type] ?? se.type, turns: se.remainingTurns }))
+        .map((se) => ({ id: se.id, type: se.type, label: statusVisual(se.type).label, turns: se.remainingTurns }))
+        .sort((a, b) => (['stun', 'root', 'silence', 'burn'].indexOf(a.type) + 1 || 99) - (['stun', 'root', 'silence', 'burn'].indexOf(b.type) + 1 || 99))
     : []
 
   const classNames = [
@@ -77,10 +53,17 @@ export default function EntityToken({ entity, isCurrentActor, isSelected, visual
   const allianceColor = battle ? (faction?.color ?? hashColor(battle.factionId || battle.ownerId || battle.id)) : '#888'
 
   return (
-    <div className={classNames} title={faction ? `${entity.name} / ${faction.name}` : entity.name}>
+    <div className={classNames} title={faction ? `${entity.name} / ${faction.name}` : entity.name} style={visualEffect?.fromPosition && visualEffect.targetPosition ? {
+      '--token-move-x': `${(visualEffect.fromPosition.x - visualEffect.targetPosition.x) * 72}px`,
+      '--token-move-y': `${(visualEffect.fromPosition.y - visualEffect.targetPosition.y) * 72}px`,
+    } as React.CSSProperties : visualEffect?.targetPosition && battle ? {
+      '--token-attack-x': `${Math.sign(visualEffect.targetPosition.x - battle.x) * 9}px`,
+      '--token-attack-y': `${Math.sign(visualEffect.targetPosition.y - battle.y) * 9}px`,
+    } as React.CSSProperties : undefined}>
       {visualEffect?.type === 'critical' && <div className="token-effect-burst critical">-{visualEffect.amount ?? '暴击'}</div>}
       {visualEffect?.type === 'hit' && <div className="token-effect-burst hit">-{visualEffect.amount ?? '受击'}</div>}
-      {visualEffect?.type === 'heal' && <div className="token-effect-burst heal">恢复</div>}
+      {visualEffect?.type === 'heal' && <div className="token-effect-burst heal">+{visualEffect.amount ?? '恢复'}</div>}
+      {visualEffect?.type === 'buff' && <div className="token-effect-burst buff">状态变化</div>}
       {visualEffect?.type === 'cast' && <div className="token-cast-ring" />}
 
       {/* 阵营颜色圆点 */}
@@ -88,39 +71,25 @@ export default function EntityToken({ entity, isCurrentActor, isSelected, visual
         <div className="token-faction-dot" style={{ background: allianceColor }} />
       )}
       {battle?.type === 'summon' && <div className="token-summon-mark">召</div>}
+      {battle?.type === 'monster' && <div className="token-summon-mark token-monster-mark">怪</div>}
 
       {/* Buff 图标 */}
-      {buffIcons.length > 0 && (
+      {(buffIcons.length > 0 || allianceNames.length > 0) && (
         <div className="token-buffs">
-          {buffIcons.map((b, i) => (
-            <span key={i} className="token-buff-icon" title={`${b.label}${b.turns != null ? ` (${b.turns}回合)` : ''}`}>
-              {b.icon}
+          {buffIcons.slice(0, 3).map((b) => (
+            <span key={b.id} className="token-buff-icon" title={`${b.label}${b.turns != null ? ` (${b.turns}回合)` : ''}`}>
+              <StatusIcon type={b.type} />
             </span>
           ))}
+          {buffIcons.length > 3 && <span className="token-buff-overflow" title={buffIcons.slice(3).map((b) => `${b.label} ${b.turns ?? '∞'}`).join('、')}>+{buffIcons.length - 3}</span>}
+          {allianceNames.length > 0 && <span className="token-buff-icon" title={`结盟：${allianceNames.join('、')}`}><StatusIcon type="alliance" /></span>}
         </div>
       )}
 
       {/* 主体图像 */}
       <div className="token-body">
-        {isTreasure ? (
-          <span className="token-treasure-icon">{treasure?.isDug ? '空' : '宝'}</span>
-        ) : tokenImageUrl ? (
-          <img src={tokenImageUrl} alt={entity.name} className="token-img" />
-        ) : (
-          <div
-            className="token-placeholder"
-            style={{
-              background:
-                battle?.type === 'monster'
-                  ? '#5a1a1a'
-                  : battle?.type === 'summon'
-                  ? '#1a1a5a'
-                  : '#1a3a5a',
-            }}
-          >
-            {entity.name.charAt(0).toUpperCase()}
-          </div>
-        )}
+        <GameImage src={tokenImageUrl ?? battle?.tokenImageUrl} fallbackKind={isTreasure ? 'treasure' : battle?.type ?? 'character'} alt={entity.name} className="token-img" />
+        {!isTreasure && <span className="token-name-mark">{entity.name.charAt(0)}</span>}
       </div>
 
       {/* 血条 */}

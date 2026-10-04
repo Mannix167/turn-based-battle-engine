@@ -31,6 +31,7 @@ pnpm-debug.log*
 # Root test and tool output
 test-results/
 playwright-report/
+.playwright-cli/
 output/
 
 # Environment and local secrets

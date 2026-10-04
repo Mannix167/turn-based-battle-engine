@@ -191,6 +191,28 @@ class DamageEventSchema(BaseModel):
     linkedFromEntityId: str | None = None
 
 
+class PlaybackCueSchema(BaseModel):
+    atMs: int
+    kind: str
+    entityId: str | None = None
+    sourceEntityId: str | None = None
+    amount: int | None = None
+    hpAfter: int | None = None
+    isCrit: bool = False
+    sourcePosition: Position | None = None
+    targetPosition: Position | None = None
+
+
+class BattlePlaybackSchema(BaseModel):
+    id: str
+    visualKey: str
+    actorId: str
+    sourcePosition: Position
+    targetPosition: Position
+    durationMs: int
+    cues: list[PlaybackCueSchema] = []
+
+
 class BattleEventSchema(BaseModel):
     id: str
     type: str
@@ -207,6 +229,7 @@ class BattleEventSchema(BaseModel):
     value: int | None = None
     visualKey: str | None = None
     soundKey: str | None = None
+    playback: BattlePlaybackSchema | None = None
     metadata: dict = {}
 
 
@@ -294,6 +317,12 @@ class GameMapRead(BaseModel):
     cells: list[MapCell] = []
 
 
+class AllianceLinkRead(BaseModel):
+    sourceEntityId: str
+    targetEntityId: str
+    remainingTurns: int | None = None
+
+
 class GameStateRead(BaseModel):
     gameId: str
     mapId: str
@@ -305,6 +334,7 @@ class GameStateRead(BaseModel):
     treasures: list[TreasureEntitySchema] = []
     pendingRewards: dict[str, PendingRewardSchema] = {}
     factions: list[FactionSchema] = []
+    alliances: list[AllianceLinkRead] = []
     rewardSkillPoolTemplateIds: list[str] = []
     rewardSkillTemplateRarities: dict[str, str] = {}
     rarityDropWeights: dict[str, int] = {}

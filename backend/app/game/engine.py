@@ -7,6 +7,7 @@ from app.game.alliance import are_allies
 from app.game.damage import apply_damage_to_state
 from app.game.distance import manhattan
 from app.game.map_system import move_entity
+from app.game.presentation import attach_bomb_playback, snapshot_entities
 from app.game.models import BattleEntity, BattleEvent, GameMap, GameState, Position
 from app.game.reward import choose_kill_reward as choose_reward_core
 from app.game.reward import COMMON_REWARD_TEMPLATE_IDS
@@ -129,6 +130,7 @@ def use_skill(
     assert_current_actor(state, caster_id)
     if has_status(state.entities[caster_id], "silence"):
         raise GameRuleError("Entity is silenced and cannot use skills")
+    before = snapshot_entities(state) if template.id == "bomb" else None
     use_skill_core(
         state,
         caster_id,
@@ -141,6 +143,8 @@ def use_skill(
     )
     process_recent_defeats_and_counters(state, caster_id)
     update_victory(state)
+    if before is not None:
+        attach_bomb_playback(state, caster_id, before)
     return state
 
 

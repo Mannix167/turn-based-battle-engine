@@ -1,3 +1,4 @@
+import GameImage from './GameImage'
 import React, { useRef, useState } from 'react'
 
 interface ImageUploaderProps {
@@ -39,7 +40,7 @@ export default function ImageUploader({
       <div className="image-uploader-label">{label}</div>
       <div className="image-uploader-preview">
         {currentUrl ? (
-          <img src={currentUrl} alt={label} className="image-preview" />
+          <GameImage fallbackKind="portrait" src={currentUrl} alt={label} className="image-preview" />
         ) : (
           <div className="image-preview-empty">未上传</div>
         )}

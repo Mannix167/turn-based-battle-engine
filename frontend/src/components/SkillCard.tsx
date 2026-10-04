@@ -1,47 +1,20 @@
+import GameImage from './GameImage'
 import React, { useState } from 'react'
 import type { SkillInstance } from '../types/game'
 import type { SkillTemplateRead } from '../types/skill'
 import { RARITY_COLORS, RARITY_LABELS } from '../types/skill'
-
-const EFFECT_ICONS: Record<string, string> = {
-  damage: '伤',
-  heal: '疗',
-  add_buff: '增',
-  remove_buff: '净',
-  modify_stat: '属',
-  add_permanent_ap: '久',
-  add_temporary_ap: '动',
-  grant_permanent_ap: '久',
-  grant_temporary_ap: '动',
-  grant_random_common_skill: '技',
-  extra_turn_next_round: '回',
-  alliance: '盟',
-  remove_alliance: '断',
-  swap_attack: '换',
-  sync_hp: '同',
-  summon: '召',
-  delayed_damage: '延',
-  grant_skill: '技',
-  burn: '火',
-  stun: '晕',
-}
-
-function getSkillIcon(template: SkillTemplateRead): string {
-  if (template.iconUrl) return template.iconUrl
-  const first = template.effects[0] as { type: string } | undefined
-  return first ? EFFECT_ICONS[first.type] ?? '技' : '技'
-}
 
 interface Props {
   instance: SkillInstance
   template: SkillTemplateRead
   isSelected: boolean
   onClick: () => void
+  disabled?: boolean
+  unavailableReason?: string
 }
 
-export default function SkillCard({ instance, template, isSelected, onClick }: Props) {
+export default function SkillCard({ instance, template, isSelected, onClick, disabled = false, unavailableReason }: Props) {
   const [showTooltip, setShowTooltip] = useState(false)
-  const icon = getSkillIcon(template)
   const quantity = Math.max(0, instance.quantity ?? 1)
 
   const targetLabel: Record<string, string> = {
@@ -61,17 +34,22 @@ export default function SkillCard({ instance, template, isSelected, onClick }: P
 
   return (
     <div
-      className={`skill-card ${isSelected ? 'selected' : ''}`}
-      onClick={onClick}
+      className={`skill-card ${isSelected ? 'selected' : ''} ${disabled ? 'unavailable' : ''}`}
+      role="button"
+      aria-disabled={disabled}
+      tabIndex={disabled ? -1 : 0}
+      onClick={() => !disabled && onClick()}
+      onKeyDown={(event) => { if (!disabled && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onClick() } }}
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
       <div className="skill-card-icon">
-        {icon.startsWith('/') || icon.startsWith('http') ? <img src={icon} alt={template.name} /> : icon}
+        <GameImage fallbackKind="skill" src={template.iconUrl} alt={template.name} />
       </div>
       <div className="skill-card-body">
         <div className="skill-card-title-row">
           <div className="skill-card-name">{template.name}</div>
+          <span className="skill-source-label">{instance.sourceTypes?.includes('character') || instance.source === 'character_default' ? '专属' : instance.sourceTypes?.includes('reward') ? '奖励' : '通用'}</span>
           <span className="rarity-pill" style={{ borderColor: RARITY_COLORS[template.rarity], color: RARITY_COLORS[template.rarity] }}>
             {RARITY_LABELS[template.rarity]}
           </span>
@@ -86,6 +64,7 @@ export default function SkillCard({ instance, template, isSelected, onClick }: P
           {areaLabel[template.areaType] && <span className="skill-area">{areaLabel[template.areaType]}</span>}
         </div>
         <div className="skill-once-tag">剩余 {quantity} / {instance.maxQuantity ?? 3}</div>
+        {unavailableReason && <div className="skill-unavailable-reason">{unavailableReason}</div>}
       </div>
 
       {showTooltip && (

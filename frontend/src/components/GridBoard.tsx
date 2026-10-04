@@ -36,11 +36,11 @@ export default function GridBoard({
 
   // 构建位置 → entity 映射
   const cellEntityMap = new Map<string, BattleEntity | TreasureEntity>()
-  gameState.entities.forEach((e) => {
-    if (e.isAlive) cellEntityMap.set(`${e.x},${e.y}`, e)
-  })
   gameState.treasures.forEach((t) => {
     cellEntityMap.set(`${t.x},${t.y}`, t)
+  })
+  gameState.entities.forEach((e) => {
+    if (e.isAlive) cellEntityMap.set(`${e.x},${e.y}`, e)
   })
 
   // 优先使用 GameState.map.cells 的地形信息（局内地形会变化）

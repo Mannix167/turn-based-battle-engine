@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import GameImage from '../components/GameImage'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listMaps } from '../api/maps'
 import { listCharacters } from '../api/characters'
@@ -408,7 +409,7 @@ export default function SetupPage() {
                       onClick={() => setSkillConfigCharId(id)}
                     >
                       <span className="loadout-avatar">
-                        {character.tokenImageUrl ? <img src={character.tokenImageUrl} alt={character.name} /> : character.name.charAt(0)}
+                        {character.tokenImageUrl ? <GameImage src={character.tokenImageUrl} alt={character.name} /> : character.name.charAt(0)}
                       </span>
                       <span>
                         <strong>{character.name}</strong>
@@ -473,7 +474,7 @@ export default function SetupPage() {
                       onClick={() => setPlacingCharId(id)}
                     >
                       <span className="deploy-roster-avatar">
-                        {getCharacterImage(characters, id) ? <img src={getCharacterImage(characters, id) ?? ''} alt={getCharacterName(characters, id)} /> : getCharacterName(characters, id).charAt(0)}
+                        {getCharacterImage(characters, id) ? <GameImage src={getCharacterImage(characters, id) ?? ''} alt={getCharacterName(characters, id)} /> : getCharacterName(characters, id).charAt(0)}
                       </span>
                       <span className="deploy-roster-copy">
                         <strong>{getCharacterName(characters, id)}</strong>
@@ -616,14 +617,20 @@ function SetupBoard({
   onCellClick?: (x: number, y: number) => void
 }) {
   const [zoom, setZoom] = useState(1)
+  const boardRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const board = boardRef.current
+    if (!board) return
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      setZoom((current) => Math.max(0.45, Math.min(2.25, current * (event.deltaY < 0 ? 1.1 : 0.9))))
+    }
+    board.addEventListener('wheel', onWheel, { passive: false })
+    return () => board.removeEventListener('wheel', onWheel)
+  }, [Boolean(map)])
   if (!map) return <div className="setup-empty-board">暂无地图</div>
-  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    const next = zoom * (event.deltaY < 0 ? 1.1 : 0.9)
-    setZoom(Math.max(0.45, Math.min(2.25, next)))
-  }
   return (
-    <div className="setup-board-frame setup-board-zoomable" onWheel={handleWheel}>
+    <div ref={boardRef} className="setup-board-frame setup-board-zoomable">
       <div className="setup-board-tools">
         <span>{Math.round(zoom * 100)}%</span>
         <button type="button" onClick={() => setZoom(1)}>重置</button>
@@ -667,7 +674,7 @@ function SetupBoard({
                 {placed && (
                   <span className="setup-cell-token token-player setup-cell-avatar">
                     {getCharacterImage(characters, placed[0]) ? (
-                      <img src={getCharacterImage(characters, placed[0]) ?? ''} alt={getCharacterName(characters, placed[0])} />
+                      <GameImage src={getCharacterImage(characters, placed[0]) ?? ''} alt={getCharacterName(characters, placed[0])} />
                     ) : (
                       getCharacterName(characters, placed[0]).charAt(0)
                     )}
@@ -722,11 +729,7 @@ function CharacterPickCard({
   return (
     <button className={`setup-character-pick ${selected ? 'selected' : ''}`} onClick={onToggle}>
       <span className="setup-character-portrait">
-        {character.portraitImageUrl || character.tokenImageUrl ? (
-          <img src={character.portraitImageUrl ?? character.tokenImageUrl ?? ''} alt={character.name} />
-        ) : (
-          character.name.charAt(0)
-        )}
+        <GameImage fallbackKind="portrait" src={character.portraitImageUrl ?? character.tokenImageUrl} alt={character.name} />
       </span>
       <span className="setup-character-info">
         <strong>{character.name}</strong>
@@ -781,7 +784,7 @@ function SkillLoadoutPanel({
       <header className="skill-loadout-head">
         <div className="loadout-hero">
           <span className="loadout-hero-avatar">
-            {character.tokenImageUrl ? <img src={character.tokenImageUrl} alt={character.name} /> : character.name.charAt(0)}
+            {character.tokenImageUrl ? <GameImage src={character.tokenImageUrl} alt={character.name} /> : character.name.charAt(0)}
           </span>
           <div>
             <span>正在配置</span>
@@ -822,7 +825,7 @@ function SkillLoadoutPanel({
                 }}
               >
                 <span className="loadout-skill-icon">
-                  {skill.iconUrl ? <img src={skill.iconUrl} alt={skill.name} /> : '技'}
+                  <GameImage fallbackKind="skill" src={skill.iconUrl} alt={skill.name} />
                 </span>
                 <span className="loadout-skill-main">
                   <strong>
@@ -879,7 +882,7 @@ function CharacterSkillPanel({
       <div className="wizard-character-head">
         <button className="wizard-character-select" onClick={onToggleCharacter}>
           <span className="wizard-character-avatar">
-            {character.tokenImageUrl ? <img src={character.tokenImageUrl} alt={character.name} /> : character.name.charAt(0)}
+            {character.tokenImageUrl ? <GameImage src={character.tokenImageUrl} alt={character.name} /> : character.name.charAt(0)}
           </span>
           <span>
             <strong>{character.name}</strong>
@@ -905,7 +908,7 @@ function CharacterSkillPanel({
               >
                 <span className="wizard-skill-check" />
                 <span className="wizard-skill-icon">
-                  {skill.iconUrl ? <img src={skill.iconUrl} alt={skill.name} /> : '技'}
+                  <GameImage fallbackKind="skill" src={skill.iconUrl} alt={skill.name} />
                 </span>
                 <span className="wizard-skill-copy">
                   <strong>{skill.name}</strong>
